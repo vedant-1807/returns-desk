@@ -1,24 +1,27 @@
 name: keepalive
 
-# Free tiers sleep. Render spins a free service down after about 15 minutes without
-# traffic, and Supabase pauses a free project after about a week without activity. One
-# request every 10 minutes to the deep health check keeps both awake: it reaches the API
-# and makes the API run a query.
+# Free tiers sleep. Supabase pauses a free project after about a week without activity.
+# One request a day to the deep health check reaches the API and makes it run a query.
+#
+# The API itself is kept awake by Supabase's scheduler, which calls the reconcile endpoint
+# every minute (see docs/deploy.md, step 4). This workflow is the backup for the database.
 #
 # Set the repository variable API_URL (Settings > Secrets and variables > Actions >
-# Variables) to the deployed API's address. Without it this workflow does nothing.
+# Variables) to the deployed API's address. Without it the job is skipped and uses no
+# Actions minutes. It runs once a day on purpose: on a private repository every scheduled
+# run is billed at least one minute, and a ten-minute ping would use up the free allowance.
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    - cron: "23 5 * * *"
   workflow_dispatch:
 
 jobs:
   ping:
+    if: ${{ vars.API_URL != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
       - name: Ping the deep health check
-        if: ${{ vars.API_URL != '' }}
         run: |
           curl --silent --show-error --fail --max-time 120 --retry 2 --retry-delay 20 \
             "${API_URL%/}/healthz?deep=1"

@@ -1,0 +1,12 @@
+{
+  "prompt_version": "1",
+  "examples": 40,
+  "judged": 40,
+  "unjudged": 0,
+  "agreement": 1.0,
+  "cohens_kappa": 1.0,
+  "label_faithful": 20,
+  "judge_faithful": 20,
+  "disagreements": [],
+  "judge_model": "groq/openai/gpt-oss-120b"
+}

@@ -187,6 +187,211 @@
    "messages": 34,
    "tool_calls": 8,
    "seconds": 119.9
+  },
+  {
+   "task": 19,
+   "trial": 0,
+   "reward": 0.0,
+   "error": null,
+   "messages": 32,
+   "tool_calls": 8,
+   "seconds": 121.3
+  },
+  {
+   "task": 0,
+   "trial": 1,
+   "reward": 0.0,
+   "error": null,
+   "messages": 34,
+   "tool_calls": 8,
+   "seconds": 138.4
+  },
+  {
+   "task": 1,
+   "trial": 1,
+   "reward": 0.0,
+   "error": null,
+   "messages": 24,
+   "tool_calls": 5,
+   "seconds": 89.9
+  },
+  {
+   "task": 2,
+   "trial": 1,
+   "reward": 0.0,
+   "error": null,
+   "messages": 44,
+   "tool_calls": 10,
+   "seconds": 181.8
+  },
+  {
+   "task": 3,
+   "trial": 1,
+   "reward": 0.0,
+   "error": null,
+   "messages": 38,
+   "tool_calls": 9,
+   "seconds": 149.6
+  },
+  {
+   "task": 4,
+   "trial": 1,
+   "reward": 0.0,
+   "error": null,
+   "messages": 32,
+   "tool_calls": 8,
+   "seconds": 127.0
+  },
+  {
+   "task": 5,
+   "trial": 1,
+   "reward": 0.0,
+   "error": null,
+   "messages": 26,
+   "tool_calls": 6,
+   "seconds": 101.2
+  },
+  {
+   "task": 6,
+   "trial": 1,
+   "reward": 0.0,
+   "error": null,
+   "messages": 42,
+   "tool_calls": 10,
+   "seconds": 183.4
+  },
+  {
+   "task": 7,
+   "trial": 1,
+   "reward": 0.0,
+   "error": null,
+   "messages": 38,
+   "tool_calls": 9,
+   "seconds": 142.3
+  },
+  {
+   "task": 8,
+   "trial": 1,
+   "reward": 0.0,
+   "error": null,
+   "messages": 32,
+   "tool_calls": 7,
+   "seconds": 118.2
+  },
+  {
+   "task": 9,
+   "trial": 1,
+   "reward": 0.0,
+   "error": "HTTPStatusError(\"Server error '500 Internal Server Error' for url 'http://localhost:11436/v1/chat/completions'\\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/500\")",
+   "seconds": 81.1
+  },
+  {
+   "task": 10,
+   "trial": 1,
+   "reward": 1.0,
+   "error": null,
+   "messages": 32,
+   "tool_calls": 9,
+   "seconds": 93.0
+  },
+  {
+   "task": 11,
+   "trial": 1,
+   "reward": 0.0,
+   "error": null,
+   "messages": 28,
+   "tool_calls": 6,
+   "seconds": 76.6
+  },
+  {
+   "task": 12,
+   "trial": 1,
+   "reward": 1.0,
+   "error": null,
+   "messages": 8,
+   "tool_calls": 2,
+   "seconds": 16.6
+  },
+  {
+   "task": 13,
+   "trial": 1,
+   "reward": 0.0,
+   "error": null,
+   "messages": 38,
+   "tool_calls": 9,
+   "seconds": 116.7
+  },
+  {
+   "task": 14,
+   "trial": 1,
+   "reward": 0.0,
+   "error": null,
+   "messages": 38,
+   "tool_calls": 9,
+   "seconds": 117.5
+  },
+  {
+   "task": 15,
+   "trial": 1,
+   "reward": 0.0,
+   "error": null,
+   "messages": 38,
+   "tool_calls": 9,
+   "seconds": 117.2
+  },
+  {
+   "task": 16,
+   "trial": 1,
+   "reward": 0.0,
+   "error": null,
+   "messages": 40,
+   "tool_calls": 9,
+   "seconds": 139.0
+  },
+  {
+   "task": 17,
+   "trial": 1,
+   "reward": 1.0,
+   "error": null,
+   "messages": 26,
+   "tool_calls": 6,
+   "seconds": 80.2
+  },
+  {
+   "task": 18,
+   "trial": 1,
+   "reward": 0.0,
+   "error": null,
+   "messages": 12,
+   "tool_calls": 3,
+   "seconds": 30.4
+  },
+  {
+   "task": 19,
+   "trial": 1,
+   "reward": 0.0,
+   "error": null,
+   "messages": 24,
+   "tool_calls": 6,
+   "seconds": 68.9
+  },
+  {
+   "task": 0,
+   "trial": 2,
+   "reward": 0.0,
+   "error": null,
+   "messages": 22,
+   "tool_calls": 5,
+   "seconds": 89.5
+  },
+  {
+   "task": 1,
+   "trial": 2,
+   "reward": 0.0,
+   "error": null,
+   "messages": 30,
+   "tool_calls": 7,
+   "seconds": 124.0
   }
  ]
 }

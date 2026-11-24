@@ -1,0 +1,210 @@
+{
+ "about": "Rewrites of the eval templates written by a model and kept only when rule checks show they preserve the facts of the original.",
+ "generated_at": "2026-11-24 05:38 UTC",
+ "model": "groq/openai/gpt-oss-120b",
+ "prompt_version": "1",
+ "accepted": {
+  "explicit": [
+   "Hey, I got two jackets but the {color} {damage}. I'd like a refund for that one only.",
+   "To whom it may concern: I ordered two jackets; the {color} {damage}. Please process a refund for that single item.",
+   "I ordered two jackets. The {color} {damage}. Refund just that one, please.",
+   "Hey, the {color} {damage}. I'd like a refund, please.",
+   "The {color} {damage}. Please process a refund.",
+   "I received a {color} that {damage}. Refund it.",
+   "Refund request: {color} {damage}.",
+   "Hey there, my {color} {damage}. I'd like a refund, please.",
+   "Hello, I received a {color} that {damage}. Could you process a full refund?",
+   "Hi, my {color} {damage}. Please refund me.",
+   "Good day, the {color} I bought {damage}. I want my money back.",
+   "Hey, could you please refund the {color}? It {damage}.",
+   "I would like a refund for the {color} as it {damage}.",
+   "Refund the {color}\u2014it {damage}.",
+   "I would like a refund for the {color}; it {damage}.",
+   "Refund request: {color}. It {damage}.",
+   "Please process a refund for the {color} \u2013 it {damage}.",
+   "I received a {color} that {damage}. Please process a refund.",
+   "My {color} {damage}. Refund, please.",
+   "Hello, my {color} {damage}. Would you be able to refund it?"
+  ],
+  "question": [
+   "Hey, can I send back the {color}? It {damage}.",
+   "May I return the {color}? It {damage}.",
+   "Hey, the {color} {damage}. Can I get a refund?",
+   "I received the {color} {damage}. Is a refund possible?",
+   "the {color} {damage}. can i get a refund?",
+   "Hey, can I return the {color}? It {damage}.",
+   "May I send back the {color}? It {damage}.",
+   "Is it possible to return the {color} \u2013 it {damage}?",
+   "Can I ship the {color} back? It {damage}."
+  ],
+  "ambiguous": [
+   "One of the jackets {damage}. I want my money back."
+  ],
+  "no_reason": [
+   "Hey, could you please process a refund for the {color}?",
+   "I would like a refund for the {color}, please.",
+   "Refund the {color}, thanks.",
+   "Please issue a refund for the {color}.",
+   "Could you please process a refund for the {color}?",
+   "I\u2019d like a refund on the {color}.",
+   "Refund me for the {color}, please.",
+   "I\u2019d like a refund on the {color}, thanks."
+  ],
+  "changed_mind": [
+   "Hey, could you please refund the {color}? I've changed my mind.",
+   "Please process a refund for the {color}; I no longer want it.",
+   "Refund the {color}, please. I changed my mind.",
+   "i want a refund for the {color} i changed my mind",
+   "I\u2019ve changed my mind about the {color}; could you process a refund?",
+   "No longer need the {color}. Please issue a refund."
+  ],
+  "exchange_explicit": [
+   "Hey, the {color} {damage}. Could you swap it for a large, please?",
+   "The {color} {damage}. I\u2019d like to exchange it for a large.",
+   "Received a {color} that {damage}. Please exchange it for a large.",
+   "the {color} {damage}. need a large instead.",
+   "Hey, my {color} {damage}. Could you swap it for a size L, please?",
+   "I received a {color} that {damage}. I would like to exchange it for size L.",
+   "Got a {color} that {damage}\u2014need a size L instead.",
+   "Dear Returns Team, The {color} {damage}. I would like to exchange it for a large one. Thank you.",
+   "The {color} {damage}. Need a large instead."
+  ],
+  "exchange_question": [
+   "Hey, the {color} {damage}. Could I get a size L instead?",
+   "The {color} {damage}. May I exchange it for a size L, please?",
+   "Got a {color} that {damage}. Want a size L \u2013 is that possible?",
+   "Hey, the {color} {damage}. Any chance I could swap it for a large?",
+   "The {color} {damage}. May I receive a large size instead?",
+   "Got the {color} {damage}. Can I get a large, please?",
+   "the {color} {damage}. could i have a large instead?"
+  ],
+  "exchange_unavailable": [
+   "Hey, the {color} {damage}. Could you swap it for a small, please?",
+   "The {color} {damage}. I\u2019d like to exchange it for a small.",
+   "the {color} {damage}. please exchange it for a small.",
+   "Hey, my {color} {damage}. Could you swap it for a size S, please?",
+   "I received a {color} that {damage}. I would like to exchange it for size S.",
+   "Got a {color} that {damage}\u2014need a size S instead."
+  ]
+ },
+ "accepted_count": 66,
+ "dropped_count": 23,
+ "failed_calls": 0,
+ "dropped": [
+  {
+   "kind": "explicit",
+   "text": "two jackets arrived, the {color} {damage}. can i get a refund for that one only?",
+   "why": "a clear request became a question"
+  },
+  {
+   "kind": "explicit",
+   "text": "Hey, could I get a refund for the {color}? It {damage}.",
+   "why": "a clear request became a question"
+  },
+  {
+   "kind": "explicit",
+   "text": "Hey, my {color} {damage}. Could I get a refund, please?",
+   "why": "a clear request became a question"
+  },
+  {
+   "kind": "question",
+   "text": "I need to return the {color} \u2013 it {damage}.",
+   "why": "a question became a statement"
+  },
+  {
+   "kind": "question",
+   "text": "Return request: {color}. It {damage}.",
+   "why": "a question became a statement"
+  },
+  {
+   "kind": "question",
+   "text": "The {color} {damage}. Please process a refund.",
+   "why": "a question became a statement"
+  },
+  {
+   "kind": "ambiguous",
+   "text": "Hey, my {color} {damage}. Can I get a refund?",
+   "why": "placeholders changed"
+  },
+  {
+   "kind": "ambiguous",
+   "text": "I would like to request a refund because my {color} {damage}.",
+   "why": "placeholders changed"
+  },
+  {
+   "kind": "ambiguous",
+   "text": "Refund, please \u2013 the {color} {damage}.",
+   "why": "placeholders changed"
+  },
+  {
+   "kind": "ambiguous",
+   "text": "my {color} {damage} - refund?",
+   "why": "placeholders changed"
+  },
+  {
+   "kind": "ambiguous",
+   "text": "Hey, the {color} {damage}. I'd like a refund, please.",
+   "why": "placeholders changed"
+  },
+  {
+   "kind": "ambiguous",
+   "text": "The {color} jacket {damage}. Could you process a refund?",
+   "why": "placeholders changed"
+  },
+  {
+   "kind": "ambiguous",
+   "text": "Got a {color} that {damage}\u2014need a refund.",
+   "why": "placeholders changed"
+  },
+  {
+   "kind": "ambiguous",
+   "text": "Hey, the {color} I received {damage}. I'd like a refund, please.",
+   "why": "placeholders changed"
+  },
+  {
+   "kind": "ambiguous",
+   "text": "I\u2019m writing to inform you that the {color} {damage}. Please process a refund.",
+   "why": "placeholders changed"
+  },
+  {
+   "kind": "ambiguous",
+   "text": "Got the {color} and it {damage}. Refund, thanks.",
+   "why": "placeholders changed"
+  },
+  {
+   "kind": "ambiguous",
+   "text": "The {color} I ordered {damage}. Could you issue a refund?",
+   "why": "placeholders changed"
+  },
+  {
+   "kind": "no_reason",
+   "text": "Hey, can I get my money back for the {color}?",
+   "why": "a clear request became a question"
+  },
+  {
+   "kind": "changed_mind",
+   "text": "I don\u2019t want the {color} any longer \u2013 can I get a refund?",
+   "why": "reason is no longer changed_mind"
+  },
+  {
+   "kind": "changed_mind",
+   "text": "I\u2019m returning the {color}, please refund me.",
+   "why": "reason is no longer changed_mind"
+  },
+  {
+   "kind": "exchange_explicit",
+   "text": "Hey, the {color} {damage}. Can I swap it for a large size?",
+   "why": "a clear request became a question"
+  },
+  {
+   "kind": "exchange_explicit",
+   "text": "hi, the {color} {damage}... could i get a large please?",
+   "why": "a clear request became a question"
+  },
+  {
+   "kind": "exchange_question",
+   "text": "The {color} {damage}. I\u2019d like to swap it for a size L.",
+   "why": "a question became a statement"
+  }
+ ]
+}

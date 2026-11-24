@@ -4,7 +4,10 @@ A multi-tenant returns desk. An AI agent reads the shopper's message and explain
 decision. Deterministic Python services decide eligibility and amounts, and are the only
 code that can move money. A supervisor handles exceptions.
 
-Built so far: **milestone 1 (deterministic core)** and **milestone 2 (agent and retrieval)**.
+All four milestones of the spec are built: the deterministic core, the agent and retrieval,
+the model gateway with tracing and deploy files, and the stretch work (exchanges and
+inventory, payment events, Stripe test mode, an outside benchmark). See **Status** at the
+end for what has been verified and what still needs an account.
 
 - A shopper writes "The blue jacket arrived damaged. Please refund just that one."
   Northline refunds $180 automatically. Vale, with a lower review line, sends the same
@@ -21,7 +24,7 @@ Node 20+.
 ```bash
 docker compose up -d          # Postgres 17 with pgvector on port 54329
 uv sync
-uv run pytest                 # 168 tests against real Postgres; no model or network needed
+uv run pytest                 # 287 tests against real Postgres; no model or network needed
 ```
 
 Start the app:
@@ -185,9 +188,27 @@ evals/reports/          published eval runs
 Each acceptance test writes its request IDs, resulting rows and processor receipts to
 `artifacts/acceptance/`.
 
-## Not built yet
+## Status
 
-- Milestone 3: the full gateway (router, budgets across routes, Langfuse tracing, cost
-  metrics), A12, and the free-tier deployment with Supabase Auth.
-- Milestone 4: exchanges and inventory (`check_inventory`), Stripe test mode, τ-bench.
-- An associate's "send to review" action in the staff queue.
+**Built and tested** (287 tests against real Postgres, 4 browser tests in Chrome):
+
+- All sixteen acceptance tests of the spec, A01 to A16.
+- Refunds, exchanges with inventory, supervisor review, an associate's "send to review".
+- The chat agent, policy search under row-level security, the MCP tool server.
+- The model gateway: two free routes, a router, per-turn and per-day budgets, failover.
+- Traces for every case, replay of a recorded conversation, an operations summary.
+- Signed payment events, and Stripe test mode as a payment processor.
+- The two screens, a policies page, sign-in for local use and for Supabase Auth.
+- The Docker image, the Render blueprint and the GitHub workflows.
+
+**Needs an account before it can be verified**:
+
+- The real deployment (Supabase, Render, Vercel). The steps are in
+  [docs/deploy.md](docs/deploy.md), which also says exactly what has and has not been
+  checked.
+- Stripe test mode against real Stripe (set `RD_STRIPE_TEST_KEY`); it passes against a
+  stateful fake of Stripe's API.
+- Langfuse (set the two Langfuse keys); the export passes against a stand-in.
+
+More detail: [docs/walkthrough/](docs/walkthrough/) for screenshots of the flows, and
+`evals/reports/` for the eval runs.

@@ -99,6 +99,11 @@ def main() -> None:
         help="final-state accuracy the gate requires (0.8 suits the keyword baseline)",
     )
 
+    walk_cmd = commands.add_parser(
+        "walkthrough", help="record the two-merchant walkthrough with traces and replays"
+    )
+    walk_cmd.add_argument("--out", default="docs/walkthrough")
+
     para_cmd = commands.add_parser(
         "eval-paraphrase", help="have a model write rewrites of the eval templates"
     )
@@ -252,6 +257,16 @@ def main() -> None:
         from returns_desk.deploy import reconcile_cron_sql
 
         print(reconcile_cron_sql(args.api_url, settings.internal_token))
+
+    elif args.command == "walkthrough":
+        from pathlib import Path
+
+        from returns_desk import walkthrough
+
+        result = walkthrough.record(settings, Path(args.out))
+        print(json.dumps(result, indent=2))
+        if not all(r["matches"] for r in result["replays"].values()):
+            raise SystemExit("a recording did not replay to the same outcome")
 
     elif args.command == "eval-paraphrase":
         from returns_desk.evals import paraphrase
