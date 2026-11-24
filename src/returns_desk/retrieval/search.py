@@ -130,9 +130,24 @@ class PolicySearch:
         k: int = 5,
     ) -> list[Passage]:
         """Top-k passages from the given policy versions that this caller may read."""
+        return self.search_traced(conn, principal, question=question, version_ids=version_ids, k=k)[
+            0
+        ]
+
+    def search_traced(
+        self,
+        conn: Conn,
+        principal: Principal,
+        *,
+        question: str,
+        version_ids: list[UUID],
+        k: int = 5,
+    ) -> tuple[list[Passage], str]:
+        """The same search, plus where the result came from, for the trace: "hit" (served
+        from the cache after its access was rechecked), "miss" or "none" (no search ran)."""
         normalized = normalize_question(question)
         if not version_ids or not normalized:
-            return []
+            return [], "none"
 
         # Scoped to merchant, audience, permission version, policy versions and the
         # normalized question. A role or policy change produces a different key.
@@ -150,7 +165,7 @@ class PolicySearch:
             passages = self._revalidate(conn, cached)
             if passages is not None:
                 self.stats["hits"] += 1
-                return passages
+                return passages, "hit"
             # Something the entry pointed at is gone or no longer readable. Recompute.
             self.stats["revalidation_failures"] += 1
             self._results.drop(key)
@@ -158,7 +173,7 @@ class PolicySearch:
         self.stats["misses"] += 1
         passages = self._query(conn, normalized, version_ids, k)
         self._results.put(key, [(p.chunk_id, p.score) for p in passages])
-        return passages
+        return passages, "miss"
 
     def _query_vector(self, normalized: str) -> list[float]:
         key = (self._embedder.model_id, normalized)

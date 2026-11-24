@@ -7,6 +7,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.types import Command
@@ -145,14 +146,32 @@ class AgentRuntime:
     def _context(self, principal: Principal, request_id: str | None) -> Iterator[TurnContext]:
         container = self._container
         server = build_tool_server(container, principal, request_id=request_id)
+        budget = container.models.new_budget()
+        if self._daily_cap_reached(principal):
+            budget.block("daily_token_cap")
         with self._tools.session(server) as tools:
             yield TurnContext(
                 container=container,
                 principal=principal,
                 tools=tools,
-                budget=container.models.new_budget(),
+                budget=budget,
                 request_id=request_id,
             )
+
+    def _daily_cap_reached(self, principal: Principal) -> bool:
+        """Has this merchant used up today's model budget? Counted on the merchant's local
+        calendar day, from the model attempts already recorded."""
+        container = self._container
+        now = container.clock.now()
+        day_start = now.astimezone(ZoneInfo(principal.merchant_timezone)).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        with container.db.tenant_tx(principal) as conn:
+            status = conn.execute("select * from model_budget_status(%s)", (day_start,)).fetchone()
+        cap = status["daily_token_cap"]
+        if cap is None:
+            cap = container.settings.model_daily_token_cap
+        return bool(cap) and status["tokens_used"] >= cap
 
     def _owner_principal(self, case_id: UUID) -> Principal | None:
         with self._container.db.service_tx() as conn:

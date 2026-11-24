@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import Body, Depends, FastAPI, Header, Request, Response
+from fastapi import BackgroundTasks, Body, Depends, FastAPI, Header, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -30,6 +30,8 @@ from returns_desk.services import cases, chat, policies, reviews, views
 from returns_desk.services.common import add_message
 from returns_desk.services.views import CUSTOMER_STATUS
 from returns_desk.tools.server import build_tool_server, http_app
+from returns_desk.tracing import view as trace_view
+from returns_desk.tracing.spans import trace_id
 
 __all__ = ["Container", "build_container", "create_app"]
 
@@ -175,7 +177,26 @@ def create_app(container: Container | None = None) -> FastAPI:
             view = views.case_view(conn, principal, case_id)
         if view is None:
             raise NotFound()
+        if principal.is_staff:
+            # Where staff can follow the run: the trace endpoint, and Langfuse when set up.
+            view["trace"] = {
+                "trace_id": trace_id(case_id),
+                "path": f"/cases/{case_id}/trace",
+                "langfuse_url": deps.tracer.trace_url(case_id),
+            }
         return view
+
+    def export_traces(deps: Container) -> None:
+        """Send new spans to Langfuse after the response has gone out. Tracing must never
+        fail or slow a request, so every error ends here."""
+        try:
+            deps.tracer.export_new()
+        except Exception:  # noqa: BLE001
+            log.exception("trace export failed; the rows stay queued for the next run")
+
+    def after_response(deps: Container, background: BackgroundTasks) -> None:
+        if deps.tracer.enabled:
+            background.add_task(export_traces, deps)
 
     def run_agent(
         deps: Container, principal: Principal, case_id: UUID, message: str, request_id: str
@@ -235,6 +256,7 @@ def create_app(container: Container | None = None) -> FastAPI:
         deps: Deps,
         principal: Caller,
         request: Request,
+        background: BackgroundTasks,
         body: Annotated[dict[str, Any], Body()],
     ) -> dict[str, Any]:
         """Start a request. Two shapes are accepted:
@@ -244,6 +266,7 @@ def create_app(container: Container | None = None) -> FastAPI:
         * one typed request: {client_request_id, order_id, order_line_id, reason, ...}.
         """
         request_id = request.state.request_id
+        after_response(deps, background)
         if "order_line_id" in body:
             typed = cases.OpenCaseInput.model_validate(body)
             result = cases.open_case(deps.db, deps.clock, principal, typed, request_id)
@@ -272,11 +295,29 @@ def create_app(container: Container | None = None) -> FastAPI:
     def get_case(deps: Deps, principal: Caller, case_id: UUID) -> dict[str, Any]:
         return {"case": render_case(deps, principal, case_id)}
 
+    @app.get("/cases/{case_id}/trace")
+    def get_trace(deps: Deps, principal: Caller, case_id: UUID) -> dict[str, Any]:
+        """The run behind a case, for staff: every request, model attempt, tool call,
+        state change and processor call, as IDs and outcome codes. Built from the audit
+        trail under the caller's own access, so it shows what their role may see today."""
+        with deps.db.tenant_tx(principal) as conn:
+            trace = trace_view.case_trace(conn, principal, case_id)
+        if trace is None:
+            raise NotFound()
+        trace["langfuse_url"] = deps.tracer.trace_url(case_id)
+        return {"trace": trace}
+
     @app.post("/cases/{case_id}/messages")
     def post_message(
-        deps: Deps, principal: Caller, case_id: UUID, body: cases.MessageInput, request: Request
+        deps: Deps,
+        principal: Caller,
+        case_id: UUID,
+        body: cases.MessageInput,
+        request: Request,
+        background: BackgroundTasks,
     ) -> dict[str, Any]:
         request_id = request.state.request_id
+        after_response(deps, background)
         with deps.db.tenant_tx(principal) as conn:
             found = conn.execute("select channel from cases where id = %s", (case_id,)).fetchone()
         if found is None:
@@ -348,8 +389,10 @@ def create_app(container: Container | None = None) -> FastAPI:
         review_id: UUID,
         body: reviews.DecisionInput,
         request: Request,
+        background: BackgroundTasks,
     ) -> dict[str, Any]:
         request_id = request.state.request_id
+        after_response(deps, background)
         result = reviews.decide(deps.db, deps.clock, principal, review_id, body, request_id)
         execute_now(deps, result.action_id)
         case_id = result.body["case_id"]
@@ -397,13 +440,17 @@ def create_app(container: Container | None = None) -> FastAPI:
 
     @app.post("/internal/reconcile")
     def reconcile(
-        deps: Deps, authorization: Annotated[str | None, Header()] = None
+        deps: Deps,
+        background: BackgroundTasks,
+        authorization: Annotated[str | None, Header()] = None,
     ) -> dict[str, Any]:
         """Run due execution and reconciliation work. Called every minute by pg_cron in
         production. Authenticated with a shared secret, never with a user token."""
         expected = f"Bearer {deps.settings.internal_token}"
         if not authorization or not hmac.compare_digest(authorization, expected):
             raise NotAuthenticated("Internal credentials required")
+        # Runs every minute, so it also sweeps up any spans an earlier export missed.
+        after_response(deps, background)
         return {"result": deps.execution.run_due()}
 
     # --- local development only -------------------------------------------------------

@@ -405,6 +405,7 @@ def _propose_and_route(
         line=line,
         operational_version_id=quote.operational.version_id if quote.operational else None,
         now=now,
+        request_id=request_id,
     )
     move_case(
         conn,

@@ -29,7 +29,8 @@ import httpx2
 from returns_desk.config import Settings
 
 Tier = Literal["low", "strong"]
-Purpose = Literal["interpret", "answer"]
+Purpose = Literal["interpret", "answer", "judge", "paraphrase"]
+Router = Literal["routed", "always_strong", "always_low"]
 
 
 @dataclass(frozen=True)
@@ -74,6 +75,13 @@ class TurnBudget:
     def __init__(self, attempts: int, deadline_seconds: float) -> None:
         self.attempts_left = attempts
         self._deadline = time.monotonic() + deadline_seconds
+        # Why no model may be called at all this turn, such as "daily_token_cap".
+        self.blocked_reason: str | None = None
+
+    def block(self, reason: str) -> None:
+        """Close the budget for the whole turn. Every later `take` returns None, so no
+        model is called and the agent falls back to rules, quoted text or a hand-off."""
+        self.blocked_reason = reason
 
     def remaining_seconds(self) -> float:
         return self._deadline - time.monotonic()
@@ -82,7 +90,7 @@ class TurnBudget:
         """Claim one attempt. Returns the seconds it may run, or None when the budget is
         spent."""
         remaining = self.remaining_seconds()
-        if self.attempts_left <= 0 or remaining <= 0.05:
+        if self.blocked_reason or self.attempts_left <= 0 or remaining <= 0.05:
             return None
         self.attempts_left -= 1
         return remaining
@@ -145,12 +153,18 @@ class RoutedGateway:
         attempts_per_turn: int,
         deadline_seconds: float,
         rate_limit_wait_seconds: float = 0.0,
+        router: Router = "routed",
         sleep: Callable[[float], None] = time.sleep,
         transport: httpx2.BaseTransport | None = None,
     ):
         if not routes:
             raise RuntimeError("No model routes configured. Set RD_MODEL_ROUTES.")
+        if router not in ("routed", "always_strong", "always_low"):
+            raise RuntimeError(
+                f"unknown model router {router!r}; use routed, always_strong or always_low"
+            )
         self._routes = routes
+        self._router: Router = router
         self._attempts_per_turn = attempts_per_turn
         self._deadline_seconds = deadline_seconds
         # The longest single wait this gateway accepts from a rate-limited upstream.
@@ -177,7 +191,18 @@ class RoutedGateway:
         return TurnBudget(self._attempts_per_turn, self._deadline_seconds)
 
     def has_distinct_strong_tier(self) -> bool:
+        """True when escalating to the stronger tier can change anything. Under a fixed
+        router every call already uses one tier, so there is nothing to escalate to."""
+        if self._router != "routed":
+            return False
         return any(route.model_low != route.model_strong for route in self._routes)
+
+    def _tier(self, request: ModelRequest) -> Tier:
+        if self._router == "always_strong":
+            return "strong"
+        if self._router == "always_low":
+            return "low"
+        return request.tier
 
     def complete(
         self, request: ModelRequest, budget: TurnBudget, validate: Validator
@@ -185,13 +210,21 @@ class RoutedGateway:
         attempts: list[Attempt] = []
         route_index = 0
         waits = 0
+        tier = self._tier(request)
         while True:
             seconds = budget.take()
             route = self._routes[min(route_index, len(self._routes) - 1)]
-            model = route.model_for(request.tier)
+            model = route.model_for(tier)
             if seconds is None:
                 attempts.append(
-                    Attempt(route.name, model, request.tier, request.purpose, "budget_exhausted")
+                    Attempt(
+                        route.name,
+                        model,
+                        tier,
+                        request.purpose,
+                        "budget_exhausted",
+                        error=budget.blocked_reason,
+                    )
                 )
                 return ModelResult(None, attempts)
 
@@ -205,7 +238,7 @@ class RoutedGateway:
                     Attempt(
                         route.name,
                         model,
-                        request.tier,
+                        tier,
                         request.purpose,
                         exc.outcome,
                         latency_ms=_ms(started),
@@ -232,7 +265,7 @@ class RoutedGateway:
                     Attempt(
                         route.name,
                         model,
-                        request.tier,
+                        tier,
                         request.purpose,
                         "invalid_output",
                         latency_ms=_ms(started),
@@ -244,7 +277,7 @@ class RoutedGateway:
                 Attempt(
                     route.name,
                     reported_model or model,
-                    request.tier,
+                    tier,
                     request.purpose,
                     "ok",
                     input_tokens=usage.get("prompt_tokens"),
@@ -357,7 +390,12 @@ class ScriptedGateway:
             if budget.take() is None:
                 attempts.append(
                     Attempt(
-                        self._name, self._name, request.tier, request.purpose, "budget_exhausted"
+                        self._name,
+                        self._name,
+                        request.tier,
+                        request.purpose,
+                        "budget_exhausted",
+                        error=budget.blocked_reason,
                     )
                 )
                 return ModelResult(None, attempts)
@@ -440,6 +478,18 @@ def build_gateway(settings: Settings, clock: Any = None) -> ModelGateway:
                     extra={"reasoning_effort": "low"},
                 )
             )
+        elif name == "groq_alt":
+            if not settings.groq_api_key:
+                raise RuntimeError("The groq_alt route needs RD_GROQ_API_KEY")
+            routes.append(
+                Route(
+                    "groq_alt",
+                    settings.groq_base_url,
+                    settings.groq_api_key,
+                    settings.groq_alt_model_low,
+                    settings.groq_alt_model_strong,
+                )
+            )
         elif name == "openrouter":
             if not settings.openrouter_api_key:
                 raise RuntimeError("The openrouter route needs RD_OPENROUTER_API_KEY")
@@ -456,11 +506,12 @@ def build_gateway(settings: Settings, clock: Any = None) -> ModelGateway:
             )
         else:
             raise RuntimeError(
-                f"unknown model route {name!r}; use ollama, groq, openrouter or keyword"
+                f"unknown model route {name!r}; use ollama, groq, groq_alt, openrouter or keyword"
             )
     return RoutedGateway(
         routes,
         attempts_per_turn=settings.model_attempts_per_turn,
         deadline_seconds=settings.model_deadline_seconds,
         rate_limit_wait_seconds=settings.model_rate_limit_wait_seconds,
+        router=settings.model_router,  # type: ignore[arg-type]
     )

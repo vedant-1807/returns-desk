@@ -16,6 +16,7 @@ from returns_desk.services.execution import ExecutionService
 if TYPE_CHECKING:
     from returns_desk.agent.runtime import AgentRuntime
     from returns_desk.models.gateway import ModelGateway
+    from returns_desk.tracing.langfuse import LangfuseExporter
 
 
 @dataclass
@@ -30,6 +31,7 @@ class Container:
     embedder: Embedder
     policy_search: PolicySearch
     models: ModelGateway
+    tracer: LangfuseExporter
     agent: AgentRuntime = field(init=False)
     _closers: list[Any] = field(default_factory=list, repr=False)
 
@@ -39,7 +41,7 @@ class Container:
             with contextlib.suppress(Exception):
                 closer()
         self.db.close()
-        for resource in (self.processor, self.embedder, self.models):
+        for resource in (self.processor, self.embedder, self.models, self.tracer):
             close = getattr(resource, "close", None)
             if callable(close):
                 close()
@@ -52,9 +54,11 @@ def build_container(
     processor: PaymentProcessor | None = None,
     embedder: Embedder | None = None,
     models: ModelGateway | None = None,
+    tracer: LangfuseExporter | None = None,
 ) -> Container:
     from returns_desk.agent.runtime import AgentRuntime
     from returns_desk.models.gateway import build_gateway
+    from returns_desk.tracing.langfuse import LangfuseExporter
 
     settings = settings or get_settings()
     require_real_secrets(settings)
@@ -71,6 +75,7 @@ def build_container(
         embedder=embedder,
         policy_search=PolicySearch(embedder, clock),
         models=models or build_gateway(settings, clock),
+        tracer=tracer or LangfuseExporter(db, settings),
     )
     container.agent = AgentRuntime(container)
     container._closers.append(container.agent.close)

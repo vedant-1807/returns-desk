@@ -266,6 +266,11 @@ class World:
         with psycopg.connect(self.settings.admin_dsn, row_factory=dict_row) as conn:
             return conn.execute(query, params).fetchall()
 
+    def admin(self) -> psycopg.Connection[dict[str, Any]]:
+        """An admin connection for arranging a scenario, such as changing a merchant's
+        budget or a staff role. Use it as a context manager; it commits on exit."""
+        return psycopg.connect(self.settings.admin_dsn, row_factory=dict_row)
+
     def line(self, merchant: str, number: str, key: str) -> dict[str, Any]:
         return self.rows(
             "select * from order_lines where id = %s", (Ids.line(merchant, number, key),)

@@ -88,8 +88,11 @@ _PREFIXES: dict[str, tuple[str, str]] = {
 }
 
 
+_MEMO_LIMIT = 5000
+
+
 class OpenAICompatEmbedder:
-    """Any server with an OpenAI-style POST /embeddings: Ollama locally, OpenRouter hosted."""
+    """Any server with an OpenAI-style POST /embeddings: Ollama locally, or a hosted one."""
 
     def __init__(
         self,
@@ -99,9 +102,15 @@ class OpenAICompatEmbedder:
         model: str,
         api_key: str = "",
         timeout_seconds: float = 30.0,
+        dimensions: int | None = None,
     ) -> None:
         self.model_id = f"{route}/{model}"
         self._model = model
+        # Asked of models that can shorten their vectors to fit the schema.
+        self._dimensions = dimensions
+        # The same text always gets the same vector from one model, so each text is only
+        # ever sent once per process. Seeding the same policies again costs nothing.
+        self._memo: dict[str, list[float]] = {}
         self._document_prefix, self._query_prefix = _PREFIXES.get(model.split(":")[0], ("", ""))
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
         self._client = httpx2.Client(
@@ -118,21 +127,30 @@ class OpenAICompatEmbedder:
         return self._embed([self._query_prefix + text])[0]
 
     def _embed(self, inputs: list[str]) -> list[list[float]]:
-        if not inputs:
-            return []
-        response = self._client.post("/embeddings", json={"model": self._model, "input": inputs})
-        response.raise_for_status()
-        data = sorted(response.json()["data"], key=lambda item: item["index"])
-        vectors = [item["embedding"] for item in data]
-        if len(vectors) != len(inputs):
-            raise RuntimeError(f"{self.model_id} returned {len(vectors)} vectors for {len(inputs)}")
-        for vector in vectors:
-            if len(vector) != EMBEDDING_DIM:
+        missing = list(dict.fromkeys(text for text in inputs if text not in self._memo))
+        if missing:
+            body: dict[str, object] = {"model": self._model, "input": missing}
+            if self._dimensions:
+                body["dimensions"] = self._dimensions
+            response = self._client.post("/embeddings", json=body)
+            response.raise_for_status()
+            data = sorted(response.json()["data"], key=lambda item: item["index"])
+            vectors = [item["embedding"] for item in data]
+            if len(vectors) != len(missing):
                 raise RuntimeError(
-                    f"{self.model_id} returned {len(vector)} dimensions; the schema stores "
-                    f"{EMBEDDING_DIM}. Pick a 768-dimension model."
+                    f"{self.model_id} returned {len(vectors)} vectors for {len(missing)}"
                 )
-        return [_normalize(vector) for vector in vectors]
+            for vector in vectors:
+                if len(vector) != EMBEDDING_DIM:
+                    raise RuntimeError(
+                        f"{self.model_id} returned {len(vector)} dimensions; the schema stores "
+                        f"{EMBEDDING_DIM}. Pick a 768-dimension model."
+                    )
+            if len(self._memo) + len(missing) > _MEMO_LIMIT:
+                self._memo.clear()
+            for text, vector in zip(missing, vectors, strict=True):
+                self._memo[text] = _normalize(vector)
+        return [self._memo[text] for text in inputs]
 
 
 def build_embedder(settings: Settings) -> Embedder:
@@ -154,7 +172,22 @@ def build_embedder(settings: Settings) -> Embedder:
             model=settings.openrouter_embedding_model,
             api_key=settings.openrouter_api_key,
         )
-    raise RuntimeError(f"unknown RD_EMBEDDER {kind!r}; use hash, ollama or openrouter")
+    if kind == "openai":
+        # Any hosted embedding API that speaks the OpenAI format, for a deployment that
+        # cannot run a local model. The model must produce 768 numbers, or accept a
+        # `dimensions` setting that makes it do so.
+        if not (settings.embedding_base_url and settings.embedding_model):
+            raise RuntimeError(
+                "RD_EMBEDDER=openai needs RD_EMBEDDING_BASE_URL and RD_EMBEDDING_MODEL"
+            )
+        return OpenAICompatEmbedder(
+            route="openai",
+            base_url=settings.embedding_base_url,
+            model=settings.embedding_model,
+            api_key=settings.embedding_api_key,
+            dimensions=settings.embedding_dimensions or None,
+        )
+    raise RuntimeError(f"unknown RD_EMBEDDER {kind!r}; use hash, ollama, openai or openrouter")
 
 
 def to_pgvector(vector: list[float]) -> str:

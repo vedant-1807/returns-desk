@@ -96,7 +96,13 @@ def open_chat_case(
         actor_kind="shopper",
         actor_user_id=principal.user_id,
         request_id=request_id,
-        detail={"client_request_id": data.client_request_id, "channel": "chat"},
+        detail={
+            "client_request_id": data.client_request_id,
+            "channel": "chat",
+            # Whether the shopper picked an order first. It decides which lines the agent
+            # is shown, so a replay of this conversation needs to know.
+            "order_id": str(data.order_id) if data.order_id else None,
+        },
         now=now,
     )
     add_message(

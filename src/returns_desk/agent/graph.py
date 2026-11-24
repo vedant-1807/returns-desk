@@ -17,6 +17,7 @@ question or a hand-off to staff.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from typing import Any, TypedDict
 
@@ -48,6 +49,10 @@ class TurnContext:
     budget: TurnBudget
     request_id: str | None
     attempts: list[Attempt] = field(default_factory=list)
+    # Every model answer of this turn in call order, None where no usable answer came
+    # back. Kept on the audit trail so a turn can be replayed without a model.
+    model_outputs: list[dict[str, Any]] = field(default_factory=list)
+    started: float = field(default_factory=time.monotonic)
 
 
 class AgentState(TypedDict, total=False):
@@ -144,6 +149,12 @@ def _log_turn(ctx: TurnContext, state: AgentState, outcome: str, **detail: Any) 
                         "outcome": outcome,
                         "interpretation": state.get("interpretation"),
                         "model_available": state.get("model_available", True),
+                        "model_outputs": ctx.model_outputs,
+                        "strong_tier": ctx.container.models.has_distinct_strong_tier(),
+                        "budget_blocked": ctx.budget.blocked_reason,
+                        # Time the service spent on this turn. Time spent waiting for
+                        # a person is not in here; the trace reports it separately.
+                        "active_ms": int((time.monotonic() - ctx.started) * 1000),
                         "model_attempts": [
                             {
                                 "purpose": a.purpose,
@@ -228,11 +239,24 @@ def interpret(state: AgentState, runtime: Runtime[TurnContext]) -> Node:
         request, ctx.budget, prompts.validate_interpretation(refs)
     )
     parsed = prompts.clean_interpretation(result.data, refs) if result.ok else None
+    ctx.model_outputs.append({"purpose": "interpret", "tier": "low", "data": result.data})
 
-    # Escalate an answer that settled nothing to the stronger model, when there is one and
-    # the budget allows. Doubt about consent or identity is never settled this way: that
-    # always goes back to the shopper as a question.
-    unsettled = parsed is not None and parsed.intent == "other" and not pending
+    # What the shopper's own words say about the item, whatever the model thinks.
+    labels = [{"ref": c["ref"], "label": c["label"]} for c in candidates]
+    evidence, distinct = language.line_evidence(message, labels)
+
+    # The router. Escalate to the stronger model, when there is one and the budget allows,
+    # in two cases: the answer settled nothing, or it names a different item than the
+    # shopper's words do. Doubt that remains about consent or identity is never settled
+    # this way: that always goes back to the shopper as a question.
+    conflicting = (
+        parsed is not None
+        and distinct
+        and len(evidence) == 1
+        and bool(parsed.lines)
+        and list(parsed.lines) != evidence
+    )
+    unsettled = parsed is not None and ((parsed.intent == "other" and not pending) or conflicting)
     if unsettled and ctx.container.models.has_distinct_strong_tier():
         stronger = ctx.container.models.complete(
             prompts.interpret_request(message, candidates, pending, tier="strong"),
@@ -240,6 +264,7 @@ def interpret(state: AgentState, runtime: Runtime[TurnContext]) -> Node:
             prompts.validate_interpretation(refs),
         )
         result.attempts.extend(stronger.attempts)
+        ctx.model_outputs.append({"purpose": "interpret", "tier": "strong", "data": stronger.data})
         if stronger.ok:
             parsed = prompts.clean_interpretation(stronger.data, refs)
     _record_attempts(ctx, state, result.attempts)
@@ -269,8 +294,6 @@ def interpret(state: AgentState, runtime: Runtime[TurnContext]) -> Node:
     # settled only when the text itself singles it out, or there is only one to choose
     # from. A line the model picked without that support is kept as a guess: it can be
     # quoted, but never acted on until the shopper has confirmed it by name.
-    labels = [{"ref": c["ref"], "label": c["label"]} for c in candidates]
-    evidence, distinct = language.line_evidence(message, labels)
     model_lines = list(parsed.lines)
     about_the_item = fresh or bool(pending and pending["kind"] == "clarify_line")
     chosen: str | None = None
@@ -493,6 +516,7 @@ def answer_policy(state: AgentState, runtime: Runtime[TurnContext]) -> Node:
         prompts.answer_request(question, passages), ctx.budget, prompts.validate_answer(refs)
     )
     _record_attempts(ctx, state, result.attempts)
+    ctx.model_outputs.append({"purpose": "answer", "tier": "low", "data": result.data})
     by_ref = {p["ref"]: p for p in passages}
     if result.ok:
         text = result.data["answer"].strip()

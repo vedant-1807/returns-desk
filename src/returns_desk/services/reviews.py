@@ -191,6 +191,7 @@ def decide(
                     quote.operational.version_id if quote.operational else None
                 ),
                 now=now,
+                request_id=request_id,
             )
             move_case(
                 conn,

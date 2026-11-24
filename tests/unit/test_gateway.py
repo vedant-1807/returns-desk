@@ -184,3 +184,47 @@ def test_a_server_error_fails_over_and_running_out_of_attempts_returns_nothing()
         ("second", "error"),
         ("first", "budget_exhausted"),
     ]
+
+
+def test_a_blocked_budget_reaches_no_upstream_and_says_why():
+    upstream = Upstream(answer({"intent": "refund"}))
+    gateway = upstream.gateway()
+    budget = gateway.new_budget()
+    budget.block("daily_token_cap")
+
+    result = gateway.complete(REQUEST, budget, lambda data: None)
+
+    assert not result.ok
+    assert upstream.requests == []
+    [attempt] = result.attempts
+    assert (attempt.outcome, attempt.error) == ("budget_exhausted", "daily_token_cap")
+
+
+def routed(upstream: Upstream, router: str) -> RoutedGateway:
+    return RoutedGateway(
+        [Route("first", "https://first.test/v1", "key", "low-model", "strong-model")],
+        attempts_per_turn=2,
+        deadline_seconds=30,
+        router=router,  # type: ignore[arg-type]
+        transport=httpx2.MockTransport(upstream),
+    )
+
+
+def test_the_router_setting_decides_which_tier_a_call_uses():
+    models = {}
+    for router in ("routed", "always_strong", "always_low"):
+        upstream = Upstream(answer({"intent": "refund"}))
+        gateway = routed(upstream, router)
+        result = run(gateway)
+        models[router] = (
+            json.loads(upstream.requests[0].content)["model"],
+            result.attempts[0].tier,
+            gateway.has_distinct_strong_tier(),
+        )
+
+    assert models == {
+        # The caller asked for the low tier; only "routed" leaves escalation open.
+        "routed": ("low-model", "low", True),
+        "always_strong": ("strong-model", "strong", False),
+        "always_low": ("low-model", "low", False),
+    }

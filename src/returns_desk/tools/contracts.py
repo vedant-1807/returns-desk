@@ -94,6 +94,8 @@ class PolicyResult(BaseModel):
     # False when no single policy version applies. The caller must then say the policy
     # needs verification instead of guessing.
     policy_found: bool
+    # Where the passages came from, for the trace: "hit", "miss" or "none".
+    cache: str = "none"
 
 
 class CitationOut(BaseModel):
@@ -229,12 +231,13 @@ def search_policy(
             purchased_at = order["purchased_at"] if order else None
         # The applicable date comes from the order, not from the caller.
         version_ids = applicable_version_ids(conn, purchased_at=purchased_at, now=now)
-        passages = container.policy_search.search(
+        passages, cache = container.policy_search.search_traced(
             conn, principal, question=question, version_ids=version_ids, k=k
         )
     return PolicyResult(
         passages=[PassageOut(**p.as_dict()) for p in passages],
         policy_found=bool(version_ids),
+        cache=cache,
     )
 
 

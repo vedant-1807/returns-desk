@@ -15,7 +15,6 @@ from typing import Any
 
 import psycopg
 from fastapi.testclient import TestClient
-from psycopg.conninfo import make_conninfo
 from psycopg.rows import dict_row
 
 from returns_desk.api.app import create_app
@@ -24,26 +23,13 @@ from returns_desk.clock import FrozenClock
 from returns_desk.config import Settings
 from returns_desk.container import build_container
 from returns_desk.evals.cases import LINES, EvalCase
-from returns_desk.migrate import migrate
+from returns_desk.isolated import isolated_settings
+from returns_desk.models.pricing import PRICING_VERSION, list_price_usd
 from returns_desk.processor.sandbox import SandboxProcessor
 from returns_desk.seeds import Ids, seed
 
 EVAL_DATABASE = "returns_desk_eval"
 SEED_NOW = datetime(2026, 11, 20, 18, 0, tzinfo=UTC)
-
-# USD per million tokens (input, output), by (route, model): the list price of the paid
-# plan. A run on a free plan is charged nothing; the report says what the same tokens
-# would cost. Routes that are not listed are unpriced and reported as such; cost is then
-# labelled incomplete, never guessed.
-PRICING_VERSION = "2026-11-22"
-PRICES: dict[tuple[str, str], tuple[float, float]] = {
-    ("groq", "openai/gpt-oss-20b"): (0.075, 0.30),
-    ("groq", "openai/gpt-oss-120b"): (0.15, 0.60),
-    ("openrouter", "openai/gpt-oss-20b"): (0.03, 0.13),
-    ("openrouter", "openai/gpt-oss-120b"): (0.05, 0.25),
-}
-# Routes with no per-token charge: the offline stand-ins and models run on this machine.
-FREE_ROUTES = {"keyword", "scripted", "ollama"}
 
 # An eval is a batch job. When an upstream says "slow down" and for how long, the run
 # waits (up to this many seconds each time) instead of failing over, so it measures the
@@ -53,27 +39,13 @@ RATE_LIMIT_WAIT_SECONDS = 60.0
 
 def eval_settings(base: Settings) -> Settings:
     """Settings pointed at the isolated eval database, created and migrated on demand."""
-    with psycopg.connect(base.admin_dsn, autocommit=True) as conn:
-        exists = conn.execute(
-            "select 1 from pg_database where datname = %s", (EVAL_DATABASE,)
-        ).fetchone()
-        if not exists:
-            conn.execute(f'create database "{EVAL_DATABASE}"')
-    settings = base.model_copy(
-        update={
-            name: make_conninfo(getattr(base, name), dbname=EVAL_DATABASE)
-            for name in ("admin_dsn", "app_dsn", "service_dsn", "processor_dsn", "workflow_dsn")
-        }
-        | {
-            "environment": "local",
-            "agent_raise_errors": False,
-            "model_rate_limit_wait_seconds": max(
-                base.model_rate_limit_wait_seconds, RATE_LIMIT_WAIT_SECONDS
-            ),
-        }
+    return isolated_settings(
+        base,
+        EVAL_DATABASE,
+        model_rate_limit_wait_seconds=max(
+            base.model_rate_limit_wait_seconds, RATE_LIMIT_WAIT_SECONDS
+        ),
     )
-    migrate(settings)
-    return settings
 
 
 @dataclass
@@ -284,21 +256,19 @@ def score(results: list[CaseResult]) -> dict[str, Any]:
     ]
 
     attempts = [a for r in results for a in r.attempts]
-    priced, unpriced, cost = 0, 0, 0.0
+    unpriced, cost = 0, 0.0
     for attempt in attempts:
-        # No request reached a model in these two cases, so there is nothing to price.
-        if attempt["outcome"] in ("budget_exhausted", "rate_limited"):
-            continue
-        key = (attempt["route"], attempt["model"])
-        if attempt["route"] in FREE_ROUTES:
-            priced += 1
-        elif key in PRICES and attempt["input_tokens"] is not None:
-            price_in, price_out = PRICES[key]
-            cost += (attempt["input_tokens"] or 0) / 1e6 * price_in
-            cost += (attempt["output_tokens"] or 0) / 1e6 * price_out
-            priced += 1
-        else:
+        price = list_price_usd(
+            attempt["route"],
+            attempt["model"],
+            attempt["outcome"],
+            attempt["input_tokens"],
+            attempt["output_tokens"],
+        )
+        if price is None:
             unpriced += 1
+        else:
+            cost += price
 
     # Latency of calls a model answered; a refusal at the door is not model speed.
     latencies = sorted(

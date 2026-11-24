@@ -48,6 +48,7 @@ def authorize_and_queue(
     line: dict[str, Any],
     operational_version_id: UUID | None,
     now: datetime,
+    request_id: str | None = None,
 ) -> UUID:
     """Reserve, record and queue one refund in the caller's open transaction.
 
@@ -76,8 +77,8 @@ def authorize_and_queue(
         insert into resolution_actions
           (id, merchant_id, case_id, proposal_id, kind, order_id, order_line_id, quantity,
            amount_cents, provider_payment_ref, idempotency_key, status,
-           operational_policy_version_id, created_at, updated_at)
-        values (%s, %s, %s, %s, 'refund', %s, %s, %s, %s, %s, %s, 'pending', %s, %s, %s)
+           operational_policy_version_id, request_id, created_at, updated_at)
+        values (%s, %s, %s, %s, 'refund', %s, %s, %s, %s, %s, %s, 'pending', %s, %s, %s, %s)
         """,
         (
             action_id,
@@ -91,6 +92,7 @@ def authorize_and_queue(
             line["provider_payment_ref"],
             f"rd-refund-{action_id}",
             operational_version_id,
+            request_id,
             now,
             now,
         ),
@@ -176,6 +178,9 @@ class ExecutionService:
                         "action_id": str(action["id"]),
                         "case_id": str(action["case_id"]),
                         "merchant_id": str(action["merchant_id"]),
+                        # The request that authorized this refund: one correlation ID
+                        # from the shopper's message to the processor's own record.
+                        "request_id": action["request_id"] or "",
                     },
                 )
                 attempts.append(("create_refund", "succeeded", _receipt_detail(receipt)))

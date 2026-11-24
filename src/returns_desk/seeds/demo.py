@@ -115,7 +115,9 @@ class Ids:
 def reset(admin_dsn: str, processor: SandboxProcessor) -> None:
     """Empty every application table and the sandbox processor's records."""
     with psycopg.connect(admin_dsn) as conn:
-        conn.execute("truncate table merchants, app_users restart identity cascade")
+        # trace_exports points at audit rows by ID. Those IDs start again after a reset,
+        # so the record of what was already sent has to go with them.
+        conn.execute("truncate table merchants, app_users, trace_exports restart identity cascade")
         # Workflow checkpoints belong to cases that no longer exist.
         conn.execute(
             "truncate table workflow.checkpoints, workflow.checkpoint_blobs, "
