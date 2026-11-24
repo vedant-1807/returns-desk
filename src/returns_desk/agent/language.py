@@ -32,8 +32,9 @@ _REQUEST_MARKER = re.compile(
     r"(i|we)'d like (a|my|the|to)|"
     r"give me (a|my|the) refund|(my|the) money back|"
     r"(go ahead|do it|process (it|the|my|a) refund|issue (a|the|my) refund)|"
-    r"can you (please )?(refund|return|process|issue)|"
-    r"could you (please )?(refund|return|process|issue)"
+    r"can you (please )?(refund|return|process|issue|exchange|swap|replace|send)|"
+    r"could you (please )?(refund|return|process|issue|exchange|swap|replace|send)|"
+    r"please (exchange|swap|replace)|send me (a|an|the|another)"
     r")\b"
 )
 
@@ -74,6 +75,13 @@ _REASONS: list[tuple[str, re.Pattern[str]]] = [
         ),
     ),
     (
+        "does_not_fit",
+        re.compile(
+            r"\b(too (small|big|large|tight|loose|long|short)|doesn't fit|does not fit|"
+            r"didn't fit|did not fit|wrong fit|bad fit|runs (small|large|big))\b"
+        ),
+    ),
+    (
         "changed_mind",
         re.compile(
             r"\b(changed my mind|don't want|do not want|no longer (want|need)|"
@@ -98,13 +106,95 @@ def has_request_marker(text: str) -> bool:
     return bool(_REQUEST_MARKER.search(text.lower()))
 
 
+# A reply counts as a plain yes or a plain no only when it says nothing else. "Ok, a refund
+# then" starts like a yes and asks for something different; "No, the green one" starts like
+# a no and is a correction. Both are read as new messages, never as an answer.
+_YES_VOCABULARY = frozenset(
+    [
+        "yes",
+        "yeah",
+        "yep",
+        "yup",
+        "sure",
+        "ok",
+        "okay",
+        "please",
+        "do",
+        "it",
+        "go",
+        "ahead",
+        "confirm",
+        "confirmed",
+        "i",
+        "that's",
+        "that",
+        "is",
+        "right",
+        "correct",
+        "absolutely",
+        "definitely",
+        "sounds",
+        "good",
+        "great",
+        "fine",
+        "perfect",
+        "proceed",
+        "thanks",
+        "thank",
+        "you",
+        "then",
+        "of",
+        "course",
+        "so",
+    ]
+)
+_NO_VOCABULARY = frozenset(
+    [
+        "no",
+        "nope",
+        "nah",
+        "don't",
+        "dont",
+        "do",
+        "not",
+        "cancel",
+        "stop",
+        "never",
+        "mind",
+        "nevermind",
+        "now",
+        "leave",
+        "it",
+        "thanks",
+        "thank",
+        "you",
+        "please",
+        "that",
+        "this",
+    ]
+)
+
+
 def is_affirmative(text: str) -> bool:
+    """A plain yes, and nothing but a yes."""
     lowered = text.lower().strip()
-    return bool(_AFFIRMATIVE.match(lowered)) and not re.search(r"\b(but|not|don't)\b", lowered)
+    tokens = words(lowered)
+    return (
+        bool(_AFFIRMATIVE.match(lowered))
+        and len(tokens) <= 8
+        and all(token in _YES_VOCABULARY for token in tokens)
+    )
 
 
 def is_negative(text: str) -> bool:
-    return bool(_NEGATIVE.match(text.lower().strip()))
+    """A plain no, and nothing but a no."""
+    lowered = text.lower().strip()
+    tokens = words(lowered)
+    return (
+        bool(_NEGATIVE.match(lowered))
+        and len(tokens) <= 8
+        and all(token in _NO_VOCABULARY for token in tokens)
+    )
 
 
 def parse_quantity(text: str) -> int | None:
@@ -201,3 +291,83 @@ def reason_supported(text: str, reason: str) -> bool:
 
 
 _FILLER = frozenset({"m", "s", "l", "xl", "the", "a", "an", "of", "and", "one", "size"})
+
+
+# --- exchanges: which variant does the shopper want instead? -----------------------------
+
+# How shoppers say a size. The key is the size as a catalogue writes it.
+_SIZE_WORDS: dict[str, tuple[str, ...]] = {
+    "xs": ("xs", "extra small", "x-small"),
+    "s": ("s", "small"),
+    "m": ("m", "medium"),
+    "l": ("l", "large"),
+    "xl": ("xl", "extra large", "x-large"),
+    "xxl": ("xxl", "2xl"),
+}
+_SAME_AGAIN = re.compile(
+    r"\b(same (one|item|thing|size|colou?r|jacket|again)|another one|a new one|"
+    r"(a|the) replacement|replace it|send (me )?(a|another|a new) one)\b"
+)
+
+
+def _mentions(text: str, tokens: list[str], value: str) -> bool:
+    """Does the text name this attribute value? Sizes have spoken forms ("large" for L);
+    anything else is matched as a word, with room for a typo."""
+    forms = _SIZE_WORDS.get(value)
+    if forms is None:
+        return _hits(tokens, {value})
+    for form in forms:
+        if " " in form or "-" in form:
+            if form in text:
+                return True
+        elif form in tokens:
+            return True
+    return False
+
+
+def wanted_variant(text: str, current: str, known: list[str]) -> tuple[str | None, str]:
+    """Which variant of a product the shopper's own words ask for in an exchange.
+
+    `current` is the variant they have, such as "Blue / M"; `known` is every variant the
+    product comes in. An attribute they do not mention stays as it is, so "a large" on a
+    blue medium means "Blue / L". Returns (variant, how):
+
+        named     the words pick out one known variant
+        same      the words ask for the same item again
+        unknown   the words name a combination the product does not come in
+        unclear   the words name no attribute, or more than one for the same attribute
+    """
+    lowered = text.lower()
+    tokens = words(lowered)
+    have = [part.strip().lower() for part in current.split("/")]
+    catalogue = {
+        variant: [part.strip().lower() for part in variant.split("/")] for variant in known
+    }
+    if any(len(parts) != len(have) for parts in catalogue.values()):
+        # Variants that do not share a shape cannot be compared attribute by attribute.
+        return None, "unclear"
+
+    want = list(have)
+    changed = False
+    for position, mine in enumerate(have):
+        values = {parts[position] for parts in catalogue.values()} | {mine}
+        if values <= set(_SIZE_WORDS):
+            # A size the product does not come in is still a size the shopper named.
+            values |= set(_SIZE_WORDS)
+        named = {value for value in values if _mentions(lowered, tokens, value)}
+        # Naming what they have ("the blue jacket") describes the item, not the wish.
+        named.discard(mine)
+        if len(named) > 1:
+            return None, "unclear"
+        if named:
+            want[position] = named.pop()
+            changed = True
+
+    if not changed:
+        return (current, "same") if _SAME_AGAIN.search(lowered) else (None, "unclear")
+    for variant, parts in catalogue.items():
+        if parts == want:
+            return variant, "named"
+    return " / ".join(part.upper() if part in _SIZE_WORDS else part.title() for part in want), (
+        "unknown"
+    )

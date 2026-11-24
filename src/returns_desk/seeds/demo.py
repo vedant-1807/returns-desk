@@ -6,6 +6,9 @@ seed always produces the same world: two merchants holding the same two-jacket o
     two_jackets      the reference case (acceptance tests A01, A02, A03, A05, A07, A14)
     return_history   two_jackets plus three completed returns in the last 30 days and a
                      $40 order, all for the same Northline shopper (A10)
+    last_unit        two_jackets plus a jacket order for a second shopper, with one
+                     "Blue / L" jacket left in stock (A08, A09)
+    multi_unit       two_jackets plus an order line of three identical units (A13)
 """
 
 from __future__ import annotations
@@ -22,7 +25,18 @@ from returns_desk.processor.sandbox import SandboxProcessor
 from returns_desk.retrieval.embedders import Embedder, HashEmbedder
 from returns_desk.retrieval.index import index_policy_versions
 
-FIXTURES = ("two_jackets", "return_history")
+FIXTURES = ("two_jackets", "return_history", "last_unit", "multi_unit")
+
+# Stock per product and variant, the same at both merchants. "Blue / L" is down to its
+# last unit and "Blue / S" is sold out, so both a race and a shortage are one request away.
+STOCK: dict[str, tuple[str, dict[str, int]]] = {
+    "JKT-TRAIL": (
+        "Trail Jacket",
+        {"Blue / S": 0, "Blue / M": 4, "Blue / L": 1, "Green / M": 3, "Green / L": 2},
+    ),
+    "TOTE-CNV": ("Canvas Tote", {"Natural": 5, "Black": 2}),
+    "SOCK-WOOL": ("Wool Socks", {"Charcoal / M": 6, "Charcoal / L": 6}),
+}
 
 _NAMESPACE = UUID("6f1d3c52-8a0e-4b7e-9c55-0d2e7a1b4c10")
 
@@ -172,8 +186,34 @@ def seed(
                 delivered_at=now - timedelta(days=5),
                 lines=[("tote", "TOTE-CNV", "Natural", "Canvas Tote", 1, 6000)],
             )
+            _inventory(conn, slug)
         if fixture == "return_history":
             _return_history(conn, processor, now)
+        if fixture == "last_unit":
+            # A second shopper with a jacket of their own, at both merchants.
+            for slug in MERCHANTS:
+                _order(
+                    conn,
+                    processor,
+                    merchant=slug,
+                    shopper="omar",
+                    number="2002",
+                    purchased_at=now - timedelta(days=9),
+                    delivered_at=now - timedelta(days=5),
+                    lines=[("green", "JKT-TRAIL", "Green / M", "Trail Jacket", 1, 12000)],
+                )
+        if fixture == "multi_unit":
+            # Three identical units on one line: room for several partial returns.
+            _order(
+                conn,
+                processor,
+                merchant="northline",
+                shopper="maya",
+                number="1300",
+                purchased_at=now - timedelta(days=12),
+                delivered_at=now - timedelta(days=6),
+                lines=[("socks", "SOCK-WOOL", "Charcoal / M", "Wool Socks", 3, 2500)],
+            )
         index_policy_versions(conn, embedder)
     # Seeding is not application traffic: leave the processor's call log empty.
     processor.clear_request_log()
@@ -324,6 +364,18 @@ def _policies(conn: psycopg.Connection, slug: str, now: datetime) -> None:
         "Three or more completed returns by the same shopper in the preceding 30 days "
         "send the next request to review.",
     )
+
+
+def _inventory(conn: psycopg.Connection, slug: str) -> None:
+    for sku, (description, variants) in STOCK.items():
+        for variant, available in variants.items():
+            conn.execute(
+                """
+                insert into inventory (merchant_id, sku, variant, description, available)
+                values (%s, %s, %s, %s, %s)
+                """,
+                (Ids.merchant(slug), sku, variant, description, available),
+            )
 
 
 def _section(

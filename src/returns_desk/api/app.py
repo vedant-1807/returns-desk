@@ -19,6 +19,7 @@ from returns_desk.auth import authenticate, mint_token
 from returns_desk.container import Container, build_container
 from returns_desk.db import Principal
 from returns_desk.errors import (
+    Conflict,
     DomainError,
     Forbidden,
     InvalidRequest,
@@ -28,7 +29,7 @@ from returns_desk.errors import (
 from returns_desk.retrieval.index import index_policy_versions
 from returns_desk.services import cases, chat, ops, policies, reviews, views
 from returns_desk.services.common import add_message
-from returns_desk.services.views import CUSTOMER_STATUS
+from returns_desk.services.views import customer_status
 from returns_desk.tools.server import build_tool_server, http_app
 from returns_desk.tracing import view as trace_view
 from returns_desk.tracing.spans import trace_id
@@ -366,6 +367,7 @@ def create_app(container: Container | None = None) -> FastAPI:
                         now=now,
                     )
             state = case["state"]
+            status_text = customer_status(state, case["outcome_type"], case["requested_action"])[1]
         if fresh and is_owner:
             if state == "open":
                 run_agent(deps, principal, case_id, text, request_id)
@@ -373,7 +375,7 @@ def create_app(container: Container | None = None) -> FastAPI:
                 # In review, in payment or finished: answer from the case's real status.
                 with deps.db.tenant_tx(principal) as conn:
                     case = chat.load_case(conn, case_id, lock=True)
-                    chat.say(conn, case, text=CUSTOMER_STATUS[state][1], now=deps.clock.now())
+                    chat.say(conn, case, text=status_text, now=deps.clock.now())
         return chat_envelope(deps, principal, case_id, not fresh)
 
     # --- supervisors: review ----------------------------------------------------------
@@ -393,7 +395,21 @@ def create_app(container: Container | None = None) -> FastAPI:
     ) -> dict[str, Any]:
         request_id = request.state.request_id
         after_response(deps, background)
-        result = reviews.decide(deps.db, deps.clock, principal, review_id, body, request_id)
+        try:
+            result = reviews.decide(deps.db, deps.clock, principal, review_id, body, request_id)
+        except Conflict as conflict:
+            if conflict.details.get("hard_constraint") == "replacement_unavailable":
+                # The review ended without a decision because the replacement sold out.
+                # Let the paused conversation continue, so the shopper can choose again.
+                try:
+                    deps.agent.after_decision(
+                        UUID(conflict.details["case_id"]), "replacement_unavailable", request_id
+                    )
+                except Exception:
+                    if deps.settings.agent_raise_errors:
+                        raise
+                    log.exception("could not resume the workflow after a stock-out")
+            raise
         execute_now(deps, result.action_id)
         case_id = result.body["case_id"]
         if not result.body["already_decided"]:

@@ -27,7 +27,7 @@ from returns_desk.domain.rules import (
     RequestFacts,
     evaluate,
 )
-from returns_desk.seeds.demo import MERCHANTS, Ids
+from returns_desk.seeds.demo import MERCHANTS, STOCK, Ids
 
 # The seeded two-jacket order, as facts.
 LINES = {"blue": ("Blue / M", 18000, "L1"), "green": ("Green / M", 12000, "L2")}
@@ -50,14 +50,24 @@ class EvalCase:
     expected_section: str | None = None
     days_after_seed: int = 0
     tags: list[str] = field(default_factory=list)
+    # Exchanges: how many fulfillment records must exist at the end (0 if none).
+    exchange_units: int = 0
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
-def ground_truth(merchant: str, line: str, reason: str, days_after_seed: int = 0) -> Decision:
-    """What the rules say for one unit of a jacket at a merchant. This is the engine the
-    service uses, given the same facts the seed creates."""
+def ground_truth(
+    merchant: str,
+    line: str,
+    reason: str,
+    days_after_seed: int = 0,
+    *,
+    replacement: str | None = None,
+) -> Decision:
+    """What the rules say for one unit of a jacket at a merchant: a refund, or with
+    `replacement` an exchange for that variant. This is the engine the service uses, given
+    the same facts the seed creates, including the seeded stock."""
     from datetime import UTC, datetime
 
     now = datetime(2026, 11, 20, 18, 0, tzinfo=UTC)
@@ -87,6 +97,8 @@ def ground_truth(merchant: str, line: str, reason: str, days_after_seed: int = 0
             delivered_at=now - timedelta(days=20),
             merchant_timezone=MERCHANTS[merchant]["timezone"],
             prior_completed_returns=0,
+            action="exchange" if replacement else "refund",
+            replacement_available=STOCK["JKT-TRAIL"][1].get(replacement) if replacement else None,
         ),
         terms,
         operational,
@@ -94,8 +106,12 @@ def ground_truth(merchant: str, line: str, reason: str, days_after_seed: int = 0
     return result.decision
 
 
-def _outcome(decision: Decision, line: str, *, explicit: bool) -> tuple[str, str, int]:
+def _outcome(
+    decision: Decision, line: str, *, explicit: bool, exchange: bool = False
+) -> tuple[str, str, int]:
     """(final state, customer status, refunded cents) once the shopper has consented."""
+    if decision is Decision.AUTO and exchange:
+        return "resolved", "exchanged", 0
     if decision is Decision.AUTO:
         return "resolved", "refunded", LINES[line][1]
     if decision is Decision.REVIEW:
@@ -170,6 +186,19 @@ _EXCHANGE = [
     "The {color} {damage}. Can I swap it for a size L instead?",
     "I'd like to exchange the {color} for a different size.",
 ]
+_EXCHANGE_EXPLICIT = [
+    "The {color} {damage}. Please exchange it for a large.",
+    "My {color} {damage}. Please exchange it for a size L.",
+    "The {color} {damage}. I would like to exchange it for a large one.",
+]
+_EXCHANGE_QUESTION = [
+    "The {color} {damage}. Can I swap it for a size L instead?",
+    "The {color} {damage}. Could I get it in a large instead?",
+]
+_EXCHANGE_UNAVAILABLE = [
+    "The {color} {damage}. Please exchange it for a small.",
+    "My {color} {damage}. Please exchange it for a size S.",
+]
 
 
 def _noise(text: str, rng: random.Random) -> tuple[str, list[str]]:
@@ -214,6 +243,9 @@ def generate(count: int, seed: int = 7) -> list[EvalCase]:
         (_exchange, 1),
         (_late_explicit, 1),
         (_late_question, 1),
+        (_exchange_explicit, 2),
+        (_exchange_question, 1),
+        (_exchange_unavailable, 1),
     ]
     weighted = [builder for builder, weight in builders for _ in range(weight)]
     cases: list[EvalCase] = []
@@ -395,6 +427,76 @@ def _exchange(rng: random.Random) -> EvalCase:
     return EvalCase(
         "",
         "exchange_request",
+        merchant,
+        [text],
+        "exchange",
+        line,
+        True,
+        "awaiting_customer",
+        "needs_your_reply",
+        0,
+        tags=tags,
+    )
+
+
+def _large(line: str) -> str:
+    """The large size of the same colour: what "a large" means for that jacket."""
+    return f"{line.title()} / L"
+
+
+def _exchange_explicit(rng: random.Random) -> EvalCase:
+    merchant, line, color, damage = _pick(rng)
+    text, tags = _noise(rng.choice(_EXCHANGE_EXPLICIT).format(color=color, damage=damage), rng)
+    decision = ground_truth(merchant, line, "damaged", replacement=_large(line))
+    state, status, cents = _outcome(decision, line, explicit=True, exchange=True)
+    return EvalCase(
+        "",
+        "exchange_explicit",
+        merchant,
+        [text],
+        "exchange",
+        line,
+        False,
+        state,
+        status,
+        cents,
+        tags=tags,
+        exchange_units=int(decision is Decision.AUTO),
+    )
+
+
+def _exchange_question(rng: random.Random) -> EvalCase:
+    merchant, line, color, damage = _pick(rng)
+    text, tags = _noise(rng.choice(_EXCHANGE_QUESTION).format(color=color, damage=damage), rng)
+    decision = ground_truth(merchant, line, "damaged", replacement=_large(line))
+    state, status, cents = _outcome(decision, line, explicit=True, exchange=True)
+    return EvalCase(
+        "",
+        "exchange_question_then_yes",
+        merchant,
+        [text, rng.choice(["yes", "Yes please", "ok go ahead"])],
+        "exchange",
+        line,
+        True,
+        state,
+        status,
+        cents,
+        tags=tags,
+        exchange_units=int(decision is Decision.AUTO),
+    )
+
+
+def _exchange_unavailable(rng: random.Random) -> EvalCase:
+    merchant, line, color, damage = _pick(rng)
+    text, tags = _noise(rng.choice(_EXCHANGE_UNAVAILABLE).format(color=color, damage=damage), rng)
+    # The small is sold out in blue and does not exist in green. Either way the rules
+    # refuse this replacement, and that puts the choice back with the shopper: one
+    # question, and no change to stock or to the order.
+    decision = ground_truth(merchant, line, "damaged", replacement=f"{line.title()} / S")
+    assert decision is Decision.INELIGIBLE
+    return EvalCase(
+        "",
+        "exchange_unavailable",
         merchant,
         [text],
         "exchange",

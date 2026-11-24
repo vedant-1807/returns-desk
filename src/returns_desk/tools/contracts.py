@@ -7,12 +7,13 @@ caller may not see produces exactly the same error as one that does not exist.
 
     get_order               read purchased lines, paid amounts, what is still refundable
     search_policy           ranked policy passages the caller is allowed to read
-    quote_resolution        compute a resolution; changes no financial state
+    quote_resolution        compute a refund or an exchange; changes no money and no stock
+    check_inventory         what a product has in stock at this merchant (advisory)
     submit_resolution       act on a quote with the shopper's consent (idempotent)
     get_resolution_status   read the current outcome and permitted receipt fields
 
-check_inventory arrives with exchanges in the stretch milestone. The supervisor decision
-is deliberately not a tool: it is a separate authenticated API the agent cannot reach.
+The supervisor decision is deliberately not a tool: it is a separate authenticated API the
+agent cannot reach.
 """
 
 from __future__ import annotations
@@ -27,11 +28,14 @@ from returns_desk.db import Principal
 from returns_desk.errors import InvalidRequest, NotFound
 from returns_desk.retrieval.search import applicable_version_ids
 from returns_desk.services import chat, views
+from returns_desk.services.quotes import stock_of
 
 if TYPE_CHECKING:
     from returns_desk.container import Container
 
-Reason = Literal["damaged", "wrong_item", "not_as_described", "changed_mind", "other"]
+Reason = Literal[
+    "damaged", "wrong_item", "not_as_described", "does_not_fit", "changed_mind", "other"
+]
 
 
 class LineOut(BaseModel):
@@ -112,10 +116,20 @@ class ItemOut(BaseModel):
     quantity: int
 
 
+class ReplacementOut(BaseModel):
+    sku: str
+    variant: str | None
+    description: str
+    # Units in stock right now, or None when the product has no such variant.
+    available: int | None
+
+
 class QuoteResult(BaseModel):
     proposal_id: str
     proposal_version: int
     eligible: bool
+    # The paid value of the units. For a refund this is the amount that would be paid; for
+    # an exchange no money moves and this is only what the approval limit is compared with.
     amount_cents: int
     currency: str
     requires_review: bool
@@ -124,6 +138,23 @@ class QuoteResult(BaseModel):
     citations: list[CitationOut]
     existing_case_id: str | None
     item: ItemOut
+    action: str = "refund"
+    replacement: ReplacementOut | None = None
+    # Variants of the same product that are in stock, for an exchange.
+    alternatives: list[str] = []
+
+
+class StockOut(BaseModel):
+    variant: str
+    available: int
+    in_stock: bool
+
+
+class InventoryResult(BaseModel):
+    sku: str
+    description: str | None
+    # Advisory. Stock is only taken, atomically, when an exchange is carried out.
+    variants: list[StockOut]
 
 
 class SubmitResult(BaseModel):
@@ -153,6 +184,9 @@ class StatusResult(BaseModel):
     receipt: ReceiptOut | None
     outcome_type: str | None
     outcome_reason: str | None
+    # For an exchange: what was asked for, and the fulfillment reference once it is done.
+    replacement_variant: str | None = None
+    fulfillment_reference: str | None = None
 
 
 def _uuid(value: str, what: str) -> UUID:
@@ -248,8 +282,9 @@ def quote_resolution(
     case_id: str,
     order_line_id: str,
     quantity: int,
-    action: Literal["refund"] = "refund",
+    action: Literal["refund", "exchange"] = "refund",
     reason: Reason,
+    replacement_variant: str | None = None,
 ) -> QuoteResult:
     now = container.clock.now()
     with container.db.tenant_tx(principal) as conn:
@@ -262,6 +297,8 @@ def quote_resolution(
             quantity=quantity,
             reason=reason,
             now=now,
+            action=action,
+            replacement_variant=replacement_variant,
         )
     return QuoteResult(
         proposal_id=str(result["proposal_id"]),
@@ -275,6 +312,36 @@ def quote_resolution(
         citations=[CitationOut(**c) for c in result["citations"]],
         existing_case_id=str(result["existing_case_id"]) if result["existing_case_id"] else None,
         item=ItemOut(**result["item"]),
+        action=result["action"],
+        replacement=ReplacementOut(**result["replacement"]) if result["replacement"] else None,
+        alternatives=result["alternatives"],
+    )
+
+
+def check_inventory(
+    container: Container, principal: Principal, *, sku: str, variant: str | None = None
+) -> InventoryResult:
+    """Stock for one product at the caller's merchant: one variant, or all of them. The
+    merchant comes from the caller, never from an argument."""
+    if not sku.strip():
+        raise InvalidRequest("A product code is required")
+    with container.db.tenant_tx(principal) as conn:
+        if variant:
+            row = stock_of(conn, sku=sku, variant=variant)
+            rows = [row] if row else []
+        else:
+            rows = conn.execute(
+                "select sku, variant, description, available from inventory "
+                "where sku = %s order by variant",
+                (sku,),
+            ).fetchall()
+    return InventoryResult(
+        sku=sku,
+        description=rows[0]["description"] if rows else None,
+        variants=[
+            StockOut(variant=r["variant"], available=r["available"], in_stock=r["available"] > 0)
+            for r in rows
+        ],
     )
 
 
@@ -356,4 +423,6 @@ def get_resolution_status(
         ),
         outcome_type=outcome.get("type"),
         outcome_reason=outcome.get("reason"),
+        replacement_variant=(view["exchange"] or {}).get("replacement_variant"),
+        fulfillment_reference=((view["exchange"] or {}).get("fulfillment") or {}).get("reference"),
     )

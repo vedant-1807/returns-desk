@@ -22,7 +22,12 @@ from returns_desk.errors import Conflict, Forbidden, InvalidRequest, NotFound
 from returns_desk.services import policies
 from returns_desk.services.cases import _existing_case_for_units, _propose_and_route
 from returns_desk.services.common import add_message, move_case, record_event
-from returns_desk.services.quotes import load_line_for_update, quote_refund, write_proposal
+from returns_desk.services.quotes import (
+    load_line_for_update,
+    quote_for_case,
+    variants_in_stock,
+    write_proposal,
+)
 
 # States from which a shopper's new message continues the same request.
 REPLYABLE_STATES = ("open", "awaiting_customer")
@@ -217,9 +222,10 @@ def orders_for_case(
         order["lines"] = conn.execute(
             """
             select id, sku, variant, description, quantity, unit_paid_cents,
-                   quantity - reserved_quantity - refunded_quantity as remaining_quantity,
-                   quantity::bigint * unit_paid_cents - reserved_cents - refunded_cents
-                     as remaining_cents
+                   quantity - reserved_quantity - refunded_quantity - exchanged_quantity
+                     as remaining_quantity,
+                   (quantity - exchanged_quantity)::bigint * unit_paid_cents
+                     - reserved_cents - refunded_cents as remaining_cents
             from order_lines where order_id = %s
             order by description, variant, id
             """,
@@ -259,17 +265,23 @@ def quote(
     quantity: int,
     reason: str,
     now: datetime,
+    action: str = "refund",
+    replacement_variant: str | None = None,
 ) -> dict[str, Any]:
     """Compute a resolution for one line and quantity and store it as a proposal.
 
-    Changes no financial state: nothing is reserved, nothing is sent to the processor and
-    the case does not change state. Amounts and eligibility are computed here on the
-    server from the order and the policies, never taken from the caller.
+    Changes no financial or inventory state: nothing is reserved, nothing is sent to the
+    processor and the case does not change state. Amounts, eligibility and stock are
+    computed here on the server, never taken from the caller.
     """
     if case["state"] not in REPLYABLE_STATES:
         raise Conflict("This case can no longer be quoted", details={"state": case["state"]})
     if quantity < 1:
         raise InvalidRequest("Quantity must be at least 1")
+    if action not in ("refund", "exchange"):
+        raise InvalidRequest("The action must be refund or exchange")
+    if (action == "exchange") != bool(replacement_variant):
+        raise InvalidRequest("An exchange needs a replacement variant, and only an exchange")
 
     located = conn.execute(
         "select order_id from order_lines where id = %s", (order_line_id,)
@@ -285,17 +297,27 @@ def quote(
     conn.execute(
         """
         update cases
-        set order_id = %s, order_line_id = %s, quantity = %s, requested_action = 'refund',
-            reason_code = %s, updated_at = %s
+        set order_id = %s, order_line_id = %s, quantity = %s, requested_action = %s,
+            replacement_variant = %s, reason_code = %s, updated_at = %s
         where id = %s
         """,
-        (line["order_id"], line["id"], quantity, reason, now, case["id"]),
+        (
+            line["order_id"],
+            line["id"],
+            quantity,
+            action,
+            replacement_variant,
+            reason,
+            now,
+            case["id"],
+        ),
     )
     case.update(
         order_id=line["order_id"],
         order_line_id=line["id"],
         quantity=quantity,
-        requested_action="refund",
+        requested_action=action,
+        replacement_variant=replacement_variant,
         reason_code=reason,
     )
 
@@ -303,16 +325,8 @@ def quote(
     # that request. Surface it instead of quoting the same units twice.
     existing = _existing_case_for_units(conn, line, quantity, exclude_case_id=case["id"])
 
-    result = quote_refund(
-        conn,
-        line=line,
-        quantity=quantity,
-        reason=reason,
-        requested_at=case["request_received_at"],
-        merchant_timezone=principal.merchant_timezone,
-        now=now,
-        exclude_case_id=case["id"],
-        staff_escalated=case.get("review_requested_at") is not None,
+    result = quote_for_case(
+        conn, case, line, merchant_timezone=principal.merchant_timezone, now=now
     )
     ev = result.evaluation
     eligible = ev.decision is not Decision.INELIGIBLE and existing is None
@@ -356,6 +370,15 @@ def quote(
             "variant": line["variant"],
             "quantity": quantity,
         },
+        "action": action,
+        "replacement": result.replacement,
+        # What could be had instead, for an exchange. Advisory: stock is checked again,
+        # under a lock, at the moment the exchange is carried out.
+        "alternatives": (
+            variants_in_stock(conn, sku=line["sku"], quantity=quantity)
+            if action == "exchange"
+            else []
+        ),
     }
 
 
@@ -418,7 +441,11 @@ def submit(
         "awaiting_supervisor": "pending_review",
         "declined": "declined",
         "awaiting_customer": "needs_confirmation",
+        "resolved": "exchanged",
     }.get(case["state"], case["state"])
+    if case["state"] == "awaiting_customer" and current and current["status"] == "ineligible":
+        # The replacement went out of stock between the quote and the confirmation.
+        outcome = "replacement_unavailable"
     return _submit_result(case, action_id, outcome=outcome, current=current)
 
 

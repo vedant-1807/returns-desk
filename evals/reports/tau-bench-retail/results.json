@@ -1,0 +1,84 @@
+{
+ "settings": {
+  "benchmark": "https://github.com/sierra-research/tau-bench",
+  "commit": "59a200c6d575d595120f1cb70fea53cef0632f6b",
+  "domain": "retail",
+  "split": "test",
+  "tasks": 20,
+  "trials": 3,
+  "agent": "tau_bench.agents.tool_calling_agent.ToolCallingAgent",
+  "agent_model": "llama3.1:8b",
+  "agent_temperature": 0.0,
+  "user": "tau_bench.envs.user.LLMUserSimulationEnv",
+  "user_model": "llama3.1:8b",
+  "user_temperature": null,
+  "max_steps": 30,
+  "base_url": "http://localhost:11436/v1",
+  "user_base_url": "http://localhost:11436/v1"
+ },
+ "runs": [
+  {
+   "task": 0,
+   "trial": 0,
+   "reward": 0.0,
+   "error": null,
+   "messages": 26,
+   "tool_calls": 6,
+   "seconds": 133.8
+  },
+  {
+   "task": 1,
+   "trial": 0,
+   "reward": 0.0,
+   "error": null,
+   "messages": 26,
+   "tool_calls": 6,
+   "seconds": 148.6
+  },
+  {
+   "task": 2,
+   "trial": 0,
+   "reward": 0.0,
+   "error": null,
+   "messages": 54,
+   "tool_calls": 13,
+   "seconds": 481.7
+  },
+  {
+   "task": 3,
+   "trial": 0,
+   "reward": 0.0,
+   "error": null,
+   "messages": 42,
+   "tool_calls": 10,
+   "seconds": 477.8
+  },
+  {
+   "task": 4,
+   "trial": 0,
+   "reward": 0.0,
+   "error": null,
+   "messages": 34,
+   "tool_calls": 8,
+   "seconds": 154.7
+  },
+  {
+   "task": 5,
+   "trial": 0,
+   "reward": 0.0,
+   "error": null,
+   "messages": 46,
+   "tool_calls": 11,
+   "seconds": 186.5
+  },
+  {
+   "task": 6,
+   "trial": 0,
+   "reward": 0.0,
+   "error": null,
+   "messages": 30,
+   "tool_calls": 7,
+   "seconds": 131.1
+  }
+ ]
+}

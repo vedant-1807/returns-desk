@@ -56,10 +56,12 @@ def interpret(inputs: dict[str, Any]) -> dict[str, Any]:
         "lines": matched if intent in ("refund", "exchange", "status", "other") else [],
         "quantity": language.stated_quantity(message),
         "reason": language.find_reason(message),
-        "explicit_request": intent == "refund"
+        "explicit_request": intent in ("refund", "exchange")
         and language.has_request_marker(message)
         and not language.is_capability_question(message),
         "mentions_refund_and_exchange": wants_exchange and wants_refund,
+        # The stand-in does not paraphrase. Code reads the shopper's own words anyway.
+        "replacement": None,
     }
 
 

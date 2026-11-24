@@ -44,7 +44,11 @@ def _trace_fields(name: str, data: dict[str, Any]) -> dict[str, Any]:
             "proposal_id": data.get("proposal_id"),
             "eligible": data.get("eligible"),
             "requires_review": data.get("requires_review"),
+            "action": data.get("action"),
+            "reason_codes": data.get("reason_codes"),
         }
+    if name == "check_inventory":
+        return {"in_stock": [v["variant"] for v in data.get("variants", []) if v["in_stock"]]}
     if name == "submit_resolution":
         return {"outcome": data.get("outcome"), "action_id": data.get("action_id")}
     if name == "get_resolution_status":

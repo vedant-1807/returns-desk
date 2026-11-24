@@ -87,9 +87,11 @@ def build_tool_server(
 
     @server.tool(
         description=(
-            "Compute a resolution for one order line and quantity. Returns the eligible "
-            "amount, reason codes, evidence, whether a person must approve, and a proposal "
-            "ID. Changes no financial or inventory state."
+            "Compute a resolution for one order line and quantity: a refund, or an "
+            "exchange for another variant of the same product. Returns eligibility, the "
+            "amount or the replacement and its stock, reason codes, evidence, whether a "
+            "person must approve, and a proposal ID. Changes no financial or inventory "
+            "state."
         )
     )
     def quote_resolution(
@@ -98,7 +100,8 @@ def build_tool_server(
         quantity: int,
         reason: contracts.Reason,
         ctx: Context,
-        action: Literal["refund"] = "refund",
+        action: Literal["refund", "exchange"] = "refund",
+        replacement_variant: str | None = None,
     ) -> contracts.QuoteResult:
         return run(
             ctx,
@@ -108,7 +111,20 @@ def build_tool_server(
             quantity=quantity,
             action=action,
             reason=reason,
+            replacement_variant=replacement_variant,
         )
+
+    @server.tool(
+        description=(
+            "What a product has in stock at this merchant: one variant, or every variant "
+            "when none is named. Advisory only: stock is taken, atomically, when an "
+            "exchange is carried out."
+        )
+    )
+    def check_inventory(
+        sku: str, ctx: Context, variant: str | None = None
+    ) -> contracts.InventoryResult:
+        return run(ctx, contracts.check_inventory, sku=sku, variant=variant)
 
     @server.tool(
         description=(

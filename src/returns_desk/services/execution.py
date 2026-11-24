@@ -107,6 +107,97 @@ def authorize_and_queue(
     return action_id
 
 
+def authorize_exchange(
+    conn: Conn,
+    *,
+    case: dict[str, Any],
+    proposal: dict[str, Any],
+    line: dict[str, Any],
+    operational_version_id: UUID | None,
+    now: datetime,
+    request_id: str | None = None,
+) -> dict[str, Any]:
+    """Carry out one exchange, whole, in the caller's open transaction.
+
+    Takes the replacement out of stock, uses up the line's returnable units, records the
+    action and writes one fulfillment record. Either all four happen or none does. No
+    outside system is called, so there is nothing to queue or reconcile.
+
+    The caller must hold the lock on the order line, and must have read the stock row with
+    a lock in this same transaction (quote_for_case with lock_stock). The database guards
+    both counts as well: stock cannot go below zero, and a unit cannot be both exchanged
+    and refunded.
+    """
+    quantity = proposal["quantity"]
+    action_id: UUID = proposal["action_id"]
+    try:
+        with conn.transaction():
+            taken = conn.execute(
+                """
+                update inventory set available = available - %s
+                where sku = %s and variant = %s
+                returning id
+                """,
+                (quantity, proposal["replacement_sku"], proposal["replacement_variant"]),
+            ).fetchone()
+            if taken is None:
+                raise Conflict("The replacement is not a product this store carries")
+            conn.execute(
+                "update order_lines set exchanged_quantity = exchanged_quantity + %s where id = %s",
+                (quantity, line["id"]),
+            )
+    except psycopg.errors.CheckViolation as exc:
+        raise Conflict("The replacement or the original units are no longer available") from exc
+
+    conn.execute(
+        """
+        insert into resolution_actions
+          (id, merchant_id, case_id, proposal_id, kind, order_id, order_line_id, quantity,
+           amount_cents, provider_payment_ref, idempotency_key, status,
+           operational_policy_version_id, request_id, created_at, updated_at, completed_at)
+        values (%s, %s, %s, %s, 'exchange', %s, %s, %s, 0, %s, %s, 'succeeded', %s, %s, %s, %s, %s)
+        """,
+        (
+            action_id,
+            case["merchant_id"],
+            case["id"],
+            proposal["id"],
+            line["order_id"],
+            line["id"],
+            quantity,
+            line["provider_payment_ref"],
+            f"rd-exchange-{action_id}",
+            operational_version_id,
+            request_id,
+            now,
+            now,
+            now,
+        ),
+    )
+    reference = f"FUL-{action_id.hex[:10].upper()}"
+    conn.execute(
+        """
+        insert into fulfillments
+          (merchant_id, action_id, case_id, order_id, order_line_id, sku, variant, quantity,
+           reference, created_at)
+        values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """,
+        (
+            case["merchant_id"],
+            action_id,
+            case["id"],
+            line["order_id"],
+            line["id"],
+            proposal["replacement_sku"],
+            proposal["replacement_variant"],
+            quantity,
+            reference,
+            now,
+        ),
+    )
+    return {"action_id": action_id, "reference": reference}
+
+
 class ExecutionService:
     def __init__(
         self,

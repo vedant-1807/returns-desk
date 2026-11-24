@@ -11,9 +11,14 @@ from returns_desk.db import Conn, Database, Principal
 from returns_desk.domain.rules import Decision
 from returns_desk.errors import Conflict, Forbidden, NotFound
 from returns_desk.services import policies
+from returns_desk.services.cases import (
+    finish_exchange,
+    offer_another_replacement,
+    replacement_is_the_only_problem,
+)
 from returns_desk.services.common import add_message, move_case, record_event
-from returns_desk.services.execution import authorize_and_queue
-from returns_desk.services.quotes import load_line_for_update, quote_refund, write_proposal
+from returns_desk.services.execution import authorize_and_queue, authorize_exchange
+from returns_desk.services.quotes import load_line_for_update, quote_for_case, write_proposal
 
 
 class DecisionInput(BaseModel):
@@ -43,7 +48,8 @@ def list_reviews(db: Database, principal: Principal) -> list[dict[str, Any]]:
         rows = conn.execute(
             """
             select p.id as review_id, p.version as proposal_version, p.case_id,
-                   p.action_kind as proposed_action, p.quantity, p.amount_cents,
+                   p.action_kind as proposed_action, p.replacement_variant, p.quantity,
+                   p.amount_cents,
                    p.customer_policy_version_id, p.operational_policy_version_id,
                    p.cited_sections, p.evidence, p.created_at,
                    c.shopper_id, c.reason_code, c.request_received_at,
@@ -139,6 +145,7 @@ def decide(
     now = clock.now()
     stale: dict[str, Any] | None = None
     blocked: str | None = None
+    out_of_stock: UUID | None = None
 
     with db.tenant_tx(principal) as conn:
         proposal = conn.execute(
@@ -195,16 +202,14 @@ def decide(
         line = load_line_for_update(conn, case["order_id"], case["order_line_id"])
         if line is None:
             raise NotFound()
-        quote = quote_refund(
+        quote = quote_for_case(
             conn,
-            line=line,
-            quantity=case["quantity"],
-            reason=case["reason_code"],
-            requested_at=case["request_received_at"],
+            case,
+            line,
             merchant_timezone=principal.merchant_timezone,
             now=now,
-            exclude_case_id=case["id"],
-            staff_escalated=case.get("review_requested_at") is not None,
+            # An approval may carry out an exchange right here, so hold the stock row.
+            lock_stock=True,
         )
         ev = quote.evaluation
         seen = conn.execute(
@@ -212,7 +217,13 @@ def decide(
         ).fetchone()
         seen_reasons = set(seen["reasons"]) if seen else set()
 
-        if ev.decision is Decision.INELIGIBLE:
+        if ev.decision is Decision.INELIGIBLE and replacement_is_the_only_problem(ev.hard_reasons):
+            # The replacement sold out while this waited. Nothing is approved and nothing
+            # is declined: the choice goes back to the shopper, and whatever they pick
+            # becomes a new proposal that needs its own consent and approval.
+            offer_another_replacement(conn, case, line, quote, request_id=request_id, now=now)
+            out_of_stock = case["id"]
+        elif ev.decision is Decision.INELIGIBLE:
             # A hard constraint, such as an already refunded unit, cannot be approved away.
             blocked = ev.hard_reasons[0]
             conn.execute("update proposals set status = 'ineligible' where id = %s", (review_id,))
@@ -249,6 +260,30 @@ def decide(
                 raise Conflict("The shopper has not confirmed this request")
             approval = _record(conn, principal, proposal, "approved", data.note, request_id, now)
             conn.execute("update proposals set status = 'approved' where id = %s", (review_id,))
+            if proposal["action_kind"] == "exchange":
+                done = authorize_exchange(
+                    conn,
+                    case=case,
+                    proposal=proposal,
+                    line=line,
+                    operational_version_id=(
+                        quote.operational.version_id if quote.operational else None
+                    ),
+                    now=now,
+                    request_id=request_id,
+                )
+                finish_exchange(
+                    conn,
+                    case,
+                    proposal,
+                    done,
+                    authorized_by="supervisor",
+                    actor_kind="supervisor",
+                    actor_user_id=principal.user_id,
+                    request_id=request_id,
+                    now=now,
+                )
+                return DecisionResult(body=_decision_body(proposal, approval, replayed=False))
             action_id = authorize_and_queue(
                 conn,
                 case=case,
@@ -282,6 +317,15 @@ def decide(
             )
 
     # Reported after the transaction above has committed.
+    if out_of_stock is not None:
+        raise Conflict(
+            "The replacement is no longer in stock. The shopper has been asked to choose again.",
+            details={
+                "hard_constraint": "replacement_unavailable",
+                "case_state": "awaiting_customer",
+                "case_id": str(out_of_stock),
+            },
+        )
     if blocked is not None:
         raise Conflict(
             "This request can no longer be approved",
@@ -396,6 +440,9 @@ def _review_view(conn: Conn, row: dict[str, Any]) -> dict[str, Any]:
         "proposal_version": row["proposal_version"],
         "case_id": row["case_id"],
         "proposed_action": row["proposed_action"],
+        # For an exchange: what the shopper gets instead. No money moves, and
+        # amount_cents is the paid value of the units, which the limit was compared with.
+        "replacement_variant": row["replacement_variant"],
         "item": {
             "order_number": row["order_number"],
             "description": row["description"],

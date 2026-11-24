@@ -89,6 +89,48 @@ def test_yes_and_no_replies():
         assert not language.is_affirmative(text), text
 
 
+def test_a_yes_or_no_that_says_something_else_is_not_an_answer():
+    # These start like a yes or a no and then ask for something different. Reading them as
+    # an answer would confirm, or cancel, the wrong thing.
+    for text in ("ok, a refund then", "Yes, refund it", "sure, but make it the green one"):
+        assert not language.is_affirmative(text), text
+    for text in ("No, the green one", "no i want a refund", "no, exchange it instead"):
+        assert not language.is_negative(text), text
+
+
+VARIANTS = ["Blue / S", "Blue / M", "Blue / L", "Green / M", "Green / L"]
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        # An attribute the shopper does not mention stays as it is.
+        ("Please exchange it for a large", ("Blue / L", "named")),
+        ("Size L please", ("Blue / L", "named")),
+        ("swap the blue jacket for the green one", ("Green / M", "named")),
+        ("I'd like the green one in large instead", ("Green / L", "named")),
+        ("get me a gren one", ("Green / M", "named")),
+        # The same item again.
+        ("it arrived damaged, please send me a replacement", ("Blue / M", "same")),
+        # Named, but not something the product comes in.
+        ("I want it in XL", ("Blue / XL", "unknown")),
+        ("green and small please", ("Green / S", "unknown")),
+        # Nothing to go on.
+        ("exchange please", (None, "unclear")),
+        ("something else", (None, "unclear")),
+    ],
+)
+def test_which_variant_the_shoppers_words_ask_for(text: str, expected: tuple[str | None, str]):
+    assert language.wanted_variant(text, "Blue / M", VARIANTS) == expected
+
+
+def test_variants_with_a_single_attribute_are_matched_too():
+    assert language.wanted_variant("the black one", "Natural", ["Natural", "Black"]) == (
+        "Black",
+        "named",
+    )
+
+
 def test_quantities_and_reasons():
     assert language.parse_quantity("two") == 2
     assert language.parse_quantity("just 3 please") == 3
@@ -155,9 +197,22 @@ def test_plan_asks_for_a_missing_reason():
 
 
 def test_plan_asks_about_the_action_when_refund_and_exchange_are_mixed():
-    for known in ({"intent": "exchange"}, {"intent": "refund", "wants_both": True}):
-        step, question = next_step(dict(known), JACKETS)
+    for intent in ("refund", "exchange"):
+        step, question = next_step({"intent": intent, "wants_both": True}, JACKETS)
         assert (step, question["kind"]) == ("clarify", "clarify_action")
+
+
+def test_plan_settles_the_replacement_last_for_an_exchange():
+    known = {"intent": "exchange"}
+    # The item, the quantity and the reason are established exactly as for a refund.
+    assert next_step(dict(known), JACKETS)[1]["kind"] == "clarify_line"
+    known["line_id"] = "blue"
+    assert next_step(dict(known), JACKETS)[1]["kind"] == "clarify_reason"
+    known["reason"] = "damaged"
+    # Then which variant they want instead, read against the real stock list.
+    assert next_step(dict(known), JACKETS) == ("choose_replacement", None)
+    known["replacement_variant"] = "Blue / L"
+    assert next_step(dict(known), JACKETS) == ("quote", None)
 
 
 def test_plan_routes_questions_and_unknowns():

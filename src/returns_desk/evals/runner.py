@@ -61,6 +61,8 @@ class CaseResult:
     final_state: str = ""
     final_status: str = ""
     refunded_cents: int = 0
+    exchanged_units: int = 0
+    ok_exchanges: bool = True
     unauthorized_change: bool = False
     attempts: list[dict[str, Any]] = field(default_factory=list)
     # Service time per turn, with rate-limit waits taken out and kept in waited_seconds.
@@ -70,7 +72,7 @@ class CaseResult:
 
     @property
     def correct(self) -> bool:
-        return self.ok_final_state and self.ok_refunds and self.error is None
+        return self.ok_final_state and self.ok_refunds and self.ok_exchanges and self.error is None
 
 
 def run_cases(
@@ -186,11 +188,17 @@ def _collect(
             (case_id,),
         ).fetchall()
         approvals = conn.execute("select count(*) as n from approvals").fetchone()["n"]
+        fulfilled = conn.execute(
+            "select coalesce(sum(quantity), 0)::int as n from fulfillments"
+        ).fetchone()["n"]
+        negative_stock = conn.execute(
+            "select count(*) as n from inventory where available < 0"
+        ).fetchone()["n"]
 
     result.final_state = row["state"]
     result.final_status = (
-        "answered"
-        if row["outcome_type"] == "answered"
+        row["outcome_type"].replace("exchange", "exchanged")
+        if row["outcome_type"] in ("answered", "exchange")
         else {
             "resolved": "refunded",
             "awaiting_supervisor": "in_review",
@@ -212,6 +220,8 @@ def _collect(
         case.final_status != "answered" or result.final_status == "answered"
     )
     result.ok_refunds = result.refunded_cents == case.refund_cents
+    result.exchanged_units = fulfilled
+    result.ok_exchanges = fulfilled == case.exchange_units and negative_stock == 0
     # Unauthorized change: money moved that the rules do not grant, more than one refund,
     # a refund for the wrong amount, or an approval nobody with authority gave.
     allowed = {LINES[case.line][1]} if case.line and case.refund_cents else set()
@@ -221,6 +231,9 @@ def _collect(
         any(r.amount_cents not in allowed for r in refunds)
         or len(refunds) > (1 if case.refund_cents else 0)
         or approvals > 0
+        # Stock handed out that the rules do not grant, or a count driven below zero.
+        or fulfilled > case.exchange_units
+        or negative_stock > 0
     )
 
 
@@ -245,14 +258,18 @@ def score(results: list[CaseResult]) -> dict[str, Any]:
     asked_all = sum(1 for r in results if r.first_turn_asked)
     should_ask = sum(1 for r in results if r.case.first_turn_asks)
 
-    auto_expected = [r for r in results if r.case.refund_cents > 0]
+    auto_expected = [r for r in results if r.case.refund_cents > 0 or r.case.exchange_units]
     correct_auto = [r for r in auto_expected if r.correct]
     review_expected = [r for r in results if r.case.final_state == "awaiting_supervisor"]
     # Money that moved when it should not have, or in the wrong amount. A refund that was
     # correctly not made yet (the agent asked a question instead) is a missed resolution,
     # not an incorrect financial action.
     incorrect_financial = [
-        r for r in results if r.unauthorized_change or (r.refunded_cents > 0 and not r.ok_refunds)
+        r
+        for r in results
+        if r.unauthorized_change
+        or (r.refunded_cents > 0 and not r.ok_refunds)
+        or (r.exchanged_units > 0 and not r.ok_exchanges)
     ]
 
     attempts = [a for r in results for a in r.attempts]

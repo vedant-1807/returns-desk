@@ -54,6 +54,7 @@ def test_the_endpoint_lists_exactly_the_agent_tools(world: World):
 
     tools = {tool.name: tool for tool in world.client.portal.call(list_tools)}
     assert sorted(tools) == [
+        "check_inventory",
         "get_order",
         "get_resolution_status",
         "quote_resolution",

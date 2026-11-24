@@ -241,13 +241,21 @@ def test_a11_a_proposed_substitute_gets_a_question_not_an_action(world: World):
     asked = world.say(
         "maya", "northline", "The blue jacket is damaged. Can I swap it for a size L instead?"
     )
-    assert asked["state"] == "awaiting_customer"
-    assert "refund" in last_reply(asked) and "exchange" in last_reply(asked)
-    assert_nothing_moved(world)
-    assert world.rows("select 1 from proposals") == []
 
-    # Choosing the refund carries on; it still needs a clear yes because the first message
-    # asked for something else.
+    # One targeted question that names the exact exchange. Nothing has been written to the
+    # order or to stock: no action, no fulfillment, the last large jacket still on the shelf.
+    assert asked["state"] == "awaiting_customer"
+    assert asked["next_action"] == "confirm"
+    assert "exchange Trail Jacket (Blue / M) for Blue / L" in last_reply(asked)
+    assert_nothing_moved(world)
+    assert world.rows("select 1 from fulfillments") == []
+    assert world.rows(
+        "select available from inventory where merchant_id = %s and variant = 'Blue / L'",
+        (Ids.merchant("northline"),),
+    ) == [{"available": 1}]
+
+    # Changing to a refund carries on, and still needs a clear yes: the question was
+    # about something else.
     chosen = world.say("maya", "northline", "ok, a refund then", case_id=asked["id"])
     assert chosen["state"] == "awaiting_customer"
     assert "$180.00" in last_reply(chosen)
@@ -255,6 +263,7 @@ def test_a11_a_proposed_substitute_gets_a_question_not_an_action(world: World):
     done = world.say("maya", "northline", "yes", case_id=asked["id"])
     assert done["state"] == "resolved"
     assert done["receipt"]["amount_cents"] == 18000
+    assert world.rows("select 1 from fulfillments") == []
 
 
 def test_a_missing_reason_is_asked_for(world: World):

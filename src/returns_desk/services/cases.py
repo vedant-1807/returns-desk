@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from returns_desk.clock import Clock
 from returns_desk.db import Conn, Database, Principal
@@ -18,10 +18,17 @@ from returns_desk.services.common import (
     move_case,
     record_event,
 )
-from returns_desk.services.execution import authorize_and_queue
-from returns_desk.services.quotes import load_line_for_update, quote_refund, write_proposal
+from returns_desk.services.execution import authorize_and_queue, authorize_exchange
+from returns_desk.services.quotes import (
+    load_line_for_update,
+    quote_for_case,
+    variants_in_stock,
+    write_proposal,
+)
 
-ReasonCode = Literal["damaged", "wrong_item", "not_as_described", "changed_mind", "other"]
+ReasonCode = Literal[
+    "damaged", "wrong_item", "not_as_described", "does_not_fit", "changed_mind", "other"
+]
 
 
 class OpenCaseInput(BaseModel):
@@ -35,10 +42,18 @@ class OpenCaseInput(BaseModel):
     order_id: UUID
     order_line_id: UUID
     quantity: int = Field(default=1, ge=1, le=1000)
-    action: Literal["refund"] = "refund"
+    action: Literal["refund", "exchange"] = "refund"
+    # For an exchange: the variant of the same product the shopper wants instead.
+    replacement_variant: str | None = Field(default=None, min_length=1, max_length=200)
     reason: ReasonCode
     message: str = Field(default="", max_length=4000)
     consent: bool = False
+
+    @model_validator(mode="after")
+    def _replacement_goes_with_exchange(self) -> OpenCaseInput:
+        if (self.action == "exchange") != (self.replacement_variant is not None):
+            raise ValueError("replacement_variant is required for an exchange and only then")
+        return self
 
 
 class MessageInput(BaseModel):
@@ -47,6 +62,8 @@ class MessageInput(BaseModel):
     client_request_id: str = Field(min_length=1, max_length=100)
     text: str = Field(default="", max_length=4000)
     consent: bool = False
+    # A different replacement, when the first choice turned out to be out of stock.
+    replacement_variant: str | None = Field(default=None, min_length=1, max_length=200)
 
 
 @dataclass(frozen=True)
@@ -123,8 +140,9 @@ def open_case(
             """
             insert into cases
               (merchant_id, shopper_id, client_request_id, order_id, order_line_id, quantity,
-               requested_action, reason_code, state, request_received_at, created_at, updated_at)
-            values (%s, %s, %s, %s, %s, %s, %s, %s, 'open', %s, %s, %s)
+               requested_action, replacement_variant, reason_code, state,
+               request_received_at, created_at, updated_at)
+            values (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'open', %s, %s, %s)
             returning *
             """,
             (
@@ -135,6 +153,7 @@ def open_case(
                 line["id"],
                 data.quantity,
                 data.action,
+                data.replacement_variant,
                 data.reason,
                 now,
                 now,
@@ -184,8 +203,9 @@ def post_message(
     data: MessageInput,
     request_id: str | None,
 ) -> CaseResult:
-    """Continue a case. In this milestone the only thing a reply can change is consent."""
-    if not data.text and not data.consent:
+    """Continue a typed case. A reply can give consent, and on an exchange it can name a
+    different replacement."""
+    if not data.text and not data.consent and not data.replacement_variant:
         raise InvalidRequest("A message needs text, a confirmation, or both")
     now = clock.now()
     with db.tenant_tx(principal) as conn:
@@ -213,7 +233,14 @@ def post_message(
 
         action_id = None
         is_owner = principal.role == "shopper" and case["shopper_id"] == principal.shopper_id
-        if is_owner and case["state"] == "awaiting_customer" and data.consent:
+        waiting = is_owner and case["state"] == "awaiting_customer"
+        if waiting and data.replacement_variant and case["requested_action"] == "exchange":
+            conn.execute(
+                "update cases set replacement_variant = %s, updated_at = %s where id = %s",
+                (data.replacement_variant, now, case_id),
+            )
+            case["replacement_variant"] = data.replacement_variant
+        if waiting and (data.consent or data.replacement_variant):
             line = load_line_for_update(conn, case["order_id"], case["order_line_id"])
             if line is None:
                 raise NotFound()
@@ -230,7 +257,7 @@ def post_message(
                 principal,
                 case,
                 line,
-                consent=True,
+                consent=data.consent,
                 consented_amount_cents=shown["amount_cents"] if shown else None,
                 now=now,
                 request_id=request_id,
@@ -270,16 +297,18 @@ def _existing_case_for_units(
         """,
         params,
     ).fetchone()["q"]
-    available = line["quantity"] - line["refunded_quantity"] - int(claimed)
+    available = (
+        line["quantity"] - line["refunded_quantity"] - line["exchanged_quantity"] - int(claimed)
+    )
     if quantity <= available:
         return None
     # The case to point at: one still in progress if there is one, otherwise the one that
-    # ended in a refund. Declined and information-only cases cover no units.
+    # ended in a refund or an exchange. Declined and information-only cases cover no units.
     row = conn.execute(
         """
         select id from cases
         where order_line_id = %(line)s
-          and (state = any(%(active)s::case_state[]) or outcome_type = 'refund')
+          and (state = any(%(active)s::case_state[]) or outcome_type in ('refund', 'exchange'))
           and (%(exclude)s::uuid is null or id <> %(exclude)s::uuid)
         order by (state = 'resolved'), created_at desc
         limit 1
@@ -302,22 +331,27 @@ def _propose_and_route(
 ) -> UUID | None:
     """Steps 3 to 5: gather evidence, decide in code, then act or pause.
 
-    Returns the action ID when a refund was authorized and queued, otherwise None.
+    Returns the action ID when a refund was authorized and queued for the payment
+    processor, otherwise None. An exchange is carried out whole in this transaction and
+    leaves nothing to queue.
     """
-    quote = quote_refund(
+    exchange = case["requested_action"] == "exchange"
+    # With consent in hand this call may act, so the stock count it reads is locked.
+    quote = quote_for_case(
         conn,
-        line=line,
-        quantity=case["quantity"],
-        reason=case["reason_code"],
-        requested_at=case["request_received_at"],
+        case,
+        line,
         merchant_timezone=principal.merchant_timezone,
         now=now,
-        exclude_case_id=case["id"],
-        staff_escalated=case.get("review_requested_at") is not None,
+        lock_stock=consent and exchange,
     )
     ev = quote.evaluation
     actor = {"actor_kind": "system", "request_id": request_id, "now": now}
     item = f"{line['description']} ({line['variant']})" if line["variant"] else line["description"]
+
+    if ev.decision is Decision.INELIGIBLE and replacement_is_the_only_problem(ev.hard_reasons):
+        offer_another_replacement(conn, case, line, quote, request_id=request_id, now=now)
+        return None
 
     if ev.decision is Decision.INELIGIBLE:
         proposal = write_proposal(
@@ -366,7 +400,10 @@ def _propose_and_route(
             case_id=case["id"],
             author_kind="system",
             body=(
-                f"Please confirm: refund {format_usd(ev.amount_cents)} for "
+                f"Please confirm: exchange {case['quantity']} x {item} for "
+                f"{case['replacement_variant']}?"
+                if exchange
+                else f"Please confirm: refund {format_usd(ev.amount_cents)} for "
                 f"{case['quantity']} x {item}?"
             ),
             now=now,
@@ -399,12 +436,36 @@ def _propose_and_route(
     proposal = write_proposal(
         conn, case=case, quote=quote, status="submitted", now=now, consented_at=now
     )
+    operational_version_id = quote.operational.version_id if quote.operational else None
+    if exchange:
+        done = authorize_exchange(
+            conn,
+            case=case,
+            proposal=proposal,
+            line=line,
+            operational_version_id=operational_version_id,
+            now=now,
+            request_id=request_id,
+        )
+        finish_exchange(
+            conn,
+            case,
+            proposal,
+            done,
+            authorized_by="automatic",
+            actor_kind="system",
+            actor_user_id=None,
+            request_id=request_id,
+            now=now,
+        )
+        return None
+
     action_id = authorize_and_queue(
         conn,
         case=case,
         proposal=proposal,
         line=line,
-        operational_version_id=quote.operational.version_id if quote.operational else None,
+        operational_version_id=operational_version_id,
         now=now,
         request_id=request_id,
     )
@@ -422,6 +483,126 @@ def _propose_and_route(
         **actor,
     )
     return action_id
+
+
+def replacement_is_the_only_problem(hard_reasons: tuple[str, ...]) -> bool:
+    """True when an exchange fails only because the wanted variant is out of stock or does
+    not exist. That is not a reason to close the request: the shopper gets another choice."""
+    return bool(hard_reasons) and set(hard_reasons) <= {
+        "replacement_unavailable",
+        "replacement_unknown",
+    }
+
+
+def offer_another_replacement(
+    conn: Conn,
+    case: dict[str, Any],
+    line: dict[str, Any],
+    quote: Any,
+    *,
+    request_id: str | None,
+    now: datetime,
+) -> list[str]:
+    """The wanted replacement cannot be had. Record that, leave every balance alone, and
+    put the choice back with the shopper: another variant that is in stock, or a refund.
+    Returns the variants on offer."""
+    proposal = write_proposal(
+        conn, case=case, quote=quote, status="ineligible", now=now, consented_at=None
+    )
+    options = variants_in_stock(conn, sku=line["sku"], quantity=case["quantity"])
+    wanted = case.get("replacement_variant") or "that version"
+    if options:
+        text = (
+            f"Sorry, {line['description']} in {wanted} is not available. "
+            f"In stock: {', '.join(options)}. Tell us which one you would like instead, "
+            "or ask for a refund."
+        )
+    else:
+        text = (
+            f"Sorry, {line['description']} in {wanted} is not available and no other "
+            "version is in stock. Would you like a refund instead?"
+        )
+    detail = {
+        "proposal_id": str(proposal["id"]),
+        "wanted": case.get("replacement_variant"),
+        "alternatives": options,
+    }
+    if case["state"] == "awaiting_customer":
+        record_event(
+            conn,
+            merchant_id=case["merchant_id"],
+            case_id=case["id"],
+            kind="replacement_unavailable",
+            actor_kind="system",
+            request_id=request_id,
+            detail=detail,
+            now=now,
+        )
+    else:
+        move_case(
+            conn,
+            case,
+            "awaiting_customer",
+            kind="replacement_unavailable",
+            actor_kind="system",
+            request_id=request_id,
+            detail=detail,
+            now=now,
+        )
+    add_message(
+        conn,
+        merchant_id=case["merchant_id"],
+        case_id=case["id"],
+        author_kind="system",
+        body=text,
+        now=now,
+    )
+    return options
+
+
+def finish_exchange(
+    conn: Conn,
+    case: dict[str, Any],
+    proposal: dict[str, Any],
+    done: dict[str, Any],
+    *,
+    authorized_by: str,
+    actor_kind: str,
+    actor_user_id: UUID | None,
+    request_id: str | None,
+    now: datetime,
+) -> None:
+    """Close a case whose exchange has just been carried out in this transaction."""
+    move_case(
+        conn,
+        case,
+        "resolved",
+        kind="exchange_confirmed",
+        actor_kind=actor_kind,
+        actor_user_id=actor_user_id,
+        request_id=request_id,
+        outcome_type="exchange",
+        resolved_at=now,
+        detail={
+            "proposal_id": str(proposal["id"]),
+            "action_id": str(done["action_id"]),
+            "fulfillment_reference": done["reference"],
+            "replacement_variant": proposal["replacement_variant"],
+            "authorized_by": authorized_by,
+        },
+        now=now,
+    )
+    add_message(
+        conn,
+        merchant_id=case["merchant_id"],
+        case_id=case["id"],
+        author_kind="system",
+        body=(
+            f"Your exchange is confirmed. We have set aside {proposal['quantity']} x "
+            f"{proposal['replacement_variant']} for you. Reference: {done['reference']}."
+        ),
+        now=now,
+    )
 
 
 _DECLINE_WORDING = {

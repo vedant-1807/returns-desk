@@ -57,6 +57,7 @@ def write_report(
                 "got_state": r.final_state,
                 "got_status": r.final_status,
                 "got_refunded_cents": r.refunded_cents,
+                "got_exchanged_units": r.exchanged_units,
                 "predicted_intent": r.predicted_intent,
                 "predicted_lines": r.predicted_lines,
                 "unauthorized_change": r.unauthorized_change,
@@ -78,7 +79,7 @@ def write_report(
         "",
         "## Headline",
         "",
-        f"- **Incorrect financial actions: {metrics['incorrect_financial_actions']}**",
+        f"- **Incorrect financial or stock actions: {metrics['incorrect_financial_actions']}**",
         f"- Final-state accuracy: {_fmt(metrics['final_state_accuracy'])}",
         f"- Injection resistance: {_fmt(metrics['injection_resistance'])}",
         f"- Cost per correct automatic resolution, at list prices: "
@@ -101,7 +102,7 @@ def write_report(
         f"| Injection resistance | {_fmt(metrics['injection_resistance'])} |",
         f"| Auto-resolution coverage | {_fmt(metrics['auto_resolution_coverage'])} |",
         f"| Correct escalation rate | {_fmt(metrics['correct_escalation_rate'])} |",
-        f"| Incorrect financial actions | {metrics['incorrect_financial_actions']} |",
+        f"| Incorrect financial or stock actions | {metrics['incorrect_financial_actions']} |",
         f"| Run errors | {metrics['errors']} |",
         "",
         "## Model use",
@@ -140,8 +141,9 @@ def write_report(
     for miss in misses[:25]:
         lines.append(
             f"- `{miss['case_id']}` {miss['kind']} at {miss['merchant']}: "
-            f"expected {miss['final_state']} / {miss['refund_cents']} cents, got "
-            f"{miss['got_state']} / {miss['got_refunded_cents']} cents. "
+            f"expected {miss['final_state']} / {miss['refund_cents']} cents / "
+            f"{miss['exchange_units']} exchanged, got {miss['got_state']} / "
+            f"{miss['got_refunded_cents']} cents / {miss['got_exchanged_units']} exchanged. "
             f'First message: "{miss["turns"][0][:110]}"'
             + (f" Error: {miss['error']}" if miss["error"] else "")
         )

@@ -26,6 +26,22 @@ CUSTOMER_STATUS = {
     "declined": ("declined", "This request was not approved."),
 }
 
+
+def customer_status(
+    state: str, outcome_type: str | None = None, action: str | None = None
+) -> tuple[str, str]:
+    """The status a shopper sees, and the sentence that goes with it. The words follow the
+    case's real state and what was asked for, never the model."""
+    status, message = CUSTOMER_STATUS[state]
+    if state == "resolved" and outcome_type == "answered":
+        return "answered", "We have answered your question."
+    if state == "resolved" and outcome_type == "exchange":
+        return "exchanged", "Your exchange is confirmed."
+    if action == "exchange" and state == "processing":
+        return status, "Your exchange is being processed."
+    return status, message
+
+
 NEXT_ACTION = {
     "awaiting_customer": "confirm",
     "awaiting_supervisor": "wait",
@@ -38,6 +54,7 @@ CUSTOMER_SAFE_REASONS = {
     "outside_return_window",
     "quantity_unavailable",
     "invalid_quantity",
+    "replacement_unavailable",
     # Information-only endings of a chat.
     "policy_question",
     "status",
@@ -75,9 +92,17 @@ def case_view(conn: Conn, principal: Principal, case_id: UUID) -> dict[str, Any]
             "select * from ledger_entries where action_id = %s", (action["id"],)
         ).fetchone()
 
-    status, status_message = CUSTOMER_STATUS[case["state"]]
-    if case["state"] == "resolved" and case["outcome_type"] == "answered":
-        status, status_message = "answered", "We have answered your question."
+    status, status_message = customer_status(
+        case["state"], case["outcome_type"], case["requested_action"]
+    )
+    exchange = case["requested_action"] == "exchange"
+    fulfillment = None
+    if action is not None and action["kind"] == "exchange":
+        fulfillment = conn.execute(
+            "select reference, sku, variant, quantity, created_at from fulfillments "
+            "where action_id = %s",
+            (action["id"],),
+        ).fetchone()
     next_action = NEXT_ACTION.get(case["state"])
     if case["state"] == "awaiting_customer" and not (
         proposal is not None and proposal["status"] == "awaiting_consent"
@@ -117,8 +142,18 @@ def case_view(conn: Conn, principal: Principal, case_id: UUID) -> dict[str, Any]
             "variant": case["variant"],
             "quantity": case["quantity"],
         },
-        "amount_cents": proposal["amount_cents"] if proposal else None,
+        # Money that is or would be refunded. An exchange moves none.
+        "amount_cents": proposal["amount_cents"] if proposal and not exchange else None,
         "currency": "USD",
+        "exchange": (
+            {
+                "replacement_variant": case["replacement_variant"],
+                # Set once the exchange has been carried out.
+                "fulfillment": fulfillment,
+            }
+            if exchange
+            else None
+        ),
         "policy_citations": citations,
         "action": _action_view(action),
         "receipt": _receipt_view(action, ledger),
@@ -150,6 +185,9 @@ def case_view(conn: Conn, principal: Principal, case_id: UUID) -> dict[str, Any]
                 "version": proposal["version"],
                 "status": proposal["status"],
                 "decision": proposal["decision"],
+                "action_kind": proposal["action_kind"],
+                # The paid value of the units: what the approval limit is compared with.
+                "value_cents": proposal["amount_cents"],
                 "evidence": proposal["evidence"],
             }
             if proposal
@@ -209,8 +247,8 @@ def list_cases(conn: Conn, principal: Principal, limit: int = 50) -> list[dict[s
     """The caller's cases: a shopper's own, or the merchant's for staff."""
     return conn.execute(
         """
-        select c.id, c.state, c.requested_action, c.quantity, c.request_received_at,
-               c.updated_at, ol.description, ol.variant, o.order_number,
+        select c.id, c.state, c.requested_action, c.replacement_variant, c.quantity,
+               c.request_received_at, c.updated_at, ol.description, ol.variant, o.order_number,
                -- Flags for the staff queue. A shopper's own list carries them too, but
                -- they say nothing a shopper is not told in the conversation.
                (c.review_requested_at is not null) as review_requested,
@@ -240,9 +278,10 @@ def list_orders(conn: Conn) -> list[dict[str, Any]]:
         order["lines"] = conn.execute(
             """
             select id, sku, variant, description, quantity, unit_paid_cents,
-                   quantity - reserved_quantity - refunded_quantity as remaining_quantity,
-                   quantity::bigint * unit_paid_cents - reserved_cents - refunded_cents
-                     as remaining_cents
+                   quantity - reserved_quantity - refunded_quantity - exchanged_quantity
+                     as remaining_quantity,
+                   (quantity - exchanged_quantity)::bigint * unit_paid_cents
+                     - reserved_cents - refunded_cents as remaining_cents
             from order_lines where order_id = %s order by description, variant, id
             """,
             (order["id"],),

@@ -33,10 +33,10 @@ from returns_desk.db import Principal
 from returns_desk.models.gateway import Attempt, TurnBudget
 from returns_desk.services import chat
 from returns_desk.services.common import format_usd
-from returns_desk.services.views import CUSTOMER_STATUS
+from returns_desk.services.views import customer_status
 from returns_desk.tools.client import ToolFailure, ToolSession
 
-GRAPH_VERSION = "2"
+GRAPH_VERSION = "3"
 
 
 @dataclass
@@ -203,6 +203,7 @@ def gather(state: AgentState, runtime: Runtime[TurnContext]) -> Node:
                     "label": label,
                     "description": line["description"],
                     "variant": line["variant"],
+                    "sku": line["sku"],
                     "quantity": line["quantity"],
                     "remaining_quantity": line["remaining_quantity"],
                     "order_number": order["order_number"],
@@ -275,6 +276,7 @@ def interpret(state: AgentState, runtime: Runtime[TurnContext]) -> Node:
         update: Node = {"known": known, "interpretation": None, "model_available": False}
         if pending:
             _apply_reply_rules(known, pending, message, candidates)
+            _keep_consent_specific(known)
             update["known"] = known
         return update
 
@@ -283,12 +285,27 @@ def interpret(state: AgentState, runtime: Runtime[TurnContext]) -> Node:
         known["intent"] = parsed.intent
     if fresh:
         known["wants_both"] = parsed.mentions_refund_and_exchange
-    if pending and pending["kind"] == "clarify_action":
+    if pending and pending["kind"] in ("clarify_action", "clarify_replacement"):
         lowered = message.lower()
         if "refund" in lowered or "money back" in lowered:
             known["intent"], known["wants_both"] = "refund", False
         elif any(w in lowered for w in ("exchange", "swap", "replace")):
             known["intent"], known["wants_both"] = "exchange", False
+
+    # For an exchange: the words in which the shopper said what they want instead. Code
+    # reads those words against the product's real variants later; the model's own
+    # paraphrase is kept only as a hint that always needs the shopper's confirmation.
+    if known.get("intent") == "exchange" and (
+        fresh or (pending and pending["kind"] in ("clarify_action", "clarify_replacement"))
+    ):
+        known["replacement_text"] = message
+        known["replacement_hint"] = parsed.replacement
+        known.pop("replacement_variant", None)
+        known.pop("replacement_verified", None)
+    if known.get("intent") != "exchange":
+        for key in ("replacement_text", "replacement_hint", "replacement_variant"):
+            known.pop(key, None)
+        known.pop("replacement_verified", None)
 
     # Which item? The model proposes, the shopper's own words decide. A line is taken as
     # settled only when the text itself singles it out, or there is only one to choose
@@ -296,15 +313,27 @@ def interpret(state: AgentState, runtime: Runtime[TurnContext]) -> Node:
     # quoted, but never acted on until the shopper has confirmed it by name.
     model_lines = list(parsed.lines)
     about_the_item = fresh or bool(pending and pending["kind"] == "clarify_line")
+    # A reply to "which one would you like instead?" is about the replacement. Colour and
+    # size words in it say nothing about which item is being returned.
+    about_replacement = bool(pending and pending["kind"] == "clarify_replacement")
     chosen: str | None = None
     verified = False
     options: list[str] = []
-    if distinct and len(evidence) == 1:
+    if about_replacement:
+        pass
+    elif distinct and len(evidence) == 1:
         if not model_lines or model_lines == evidence:
             chosen, verified = evidence[0], True
         else:
             # The model and the words disagree. Ask.
             options = sorted({*model_lines, *evidence})
+    elif distinct and (
+        known.get("intent") == "exchange" and len(model_lines) == 1 and model_lines[0] in evidence
+    ):
+        # "Swap the blue one for the green one" names two lines: the item, and in passing
+        # the colour wanted instead. The model's reading of which is which is kept as a
+        # guess, so it is confirmed by name before anything happens.
+        chosen, verified = model_lines[0], False
     elif distinct:
         options = evidence
     elif len(model_lines) == 1:
@@ -333,8 +362,10 @@ def interpret(state: AgentState, runtime: Runtime[TurnContext]) -> Node:
         _apply_reply_rules(known, pending, message, candidates)
 
     # Consent needs the model and the rule to agree. A question is never a request.
+    _keep_consent_specific(known)
     if parsed.explicit_request and not language.is_capability_question(message):
         known["explicit"] = True
+        known["explicit_intent"] = known.get("intent")
 
     return {
         "known": known,
@@ -342,6 +373,15 @@ def interpret(state: AgentState, runtime: Runtime[TurnContext]) -> Node:
         "model_available": True,
         "pending": None,
     }
+
+
+def _keep_consent_specific(known: dict[str, Any]) -> None:
+    """Consent is for one action. A clear request for an exchange is not a request for a
+    refund, so when what is being asked for changes, the earlier "please do it" no longer
+    counts and the new action is confirmed before anything happens."""
+    if known.get("explicit") and known.get("explicit_intent") not in (None, known.get("intent")):
+        known.pop("explicit", None)
+        known.pop("explicit_intent", None)
 
 
 def _apply_reply_rules(
@@ -359,6 +399,16 @@ def _apply_reply_rules(
     elif kind == "clarify_reason" and "reason" not in known:
         # Any explanation we cannot classify is "other", which a person will review.
         known["reason"] = language.find_reason(message) or "other"
+    elif kind == "clarify_replacement":
+        lowered = message.lower()
+        if "refund" in lowered or "money back" in lowered:
+            known["intent"] = "refund"
+            known.pop("replacement_variant", None)
+        else:
+            known["intent"] = "exchange"
+            known["replacement_text"] = message
+            known.pop("replacement_variant", None)
+            known.pop("replacement_verified", None)
     elif kind == "clarify_line" and "line_id" not in known:
         by_ref = {c["ref"]: c for c in candidates}
         options = [by_ref[r] for r in pending.get("options", []) if r in by_ref]
@@ -397,17 +447,16 @@ def next_step(
         return "status", None
     if intent == "policy_question":
         return "answer_policy", None
-    if intent == "exchange" or known.get("wants_both"):
+    if known.get("wants_both"):
         return "clarify", {
             "kind": "clarify_action",
-            "question": "Would you like a refund for this item? "
-            "I cannot arrange an exchange in this chat yet.",
+            "question": "Would you like a refund, or an exchange for another size or colour?",
         }
-    if intent != "refund":
+    if intent not in ("refund", "exchange"):
         return "clarify", {
             "kind": "clarify_intent",
-            "question": "How can I help? I can refund an item from your order or answer a "
-            "question about the return policy.",
+            "question": "How can I help? I can refund or exchange an item from your order, "
+            "or answer a question about the return policy.",
         }
     if not candidates:
         return "no_order", None
@@ -449,8 +498,11 @@ def next_step(
         return "clarify", {
             "kind": "clarify_reason",
             "question": "What is the reason for the return? For example: it arrived damaged, "
-            "it was the wrong item, or you changed your mind.",
+            "it does not fit, it was the wrong item, or you changed your mind.",
         }
+    if intent == "exchange" and not known.get("replacement_variant"):
+        # Which variant they want is settled against the product's real stock list.
+        return "choose_replacement", None
     return "quote", None
 
 
@@ -604,6 +656,7 @@ def quote(state: AgentState, runtime: Runtime[TurnContext]) -> Node:
     and quantity. Nothing is reserved and nothing is paid."""
     ctx = runtime.context
     known = state["known"]
+    exchange = known.get("intent") == "exchange"
     try:
         result = ctx.tools.call(
             "quote_resolution",
@@ -611,15 +664,26 @@ def quote(state: AgentState, runtime: Runtime[TurnContext]) -> Node:
             order_line_id=known["line_id"],
             quantity=known["quantity"],
             reason=known["reason"],
+            action="exchange" if exchange else "refund",
+            replacement_variant=known.get("replacement_variant") if exchange else None,
         )
     except ToolFailure as failure:
         return {"step": "handoff", "quote": {"error": failure.code}}
 
-    # Acting without a further question needs two things: the shopper clearly asked, and
-    # their own words identify the item. Otherwise say what would happen and ask.
-    settled = bool(known.get("explicit")) and bool(known.get("line_verified"))
+    # Acting without a further question needs the shopper to have clearly asked, and their
+    # own words to identify the item and, for an exchange, the replacement. Otherwise say
+    # what would happen and ask.
+    settled = (
+        bool(known.get("explicit"))
+        and bool(known.get("line_verified"))
+        and (not exchange or bool(known.get("replacement_verified")))
+    )
+    codes = set(result.get("reason_codes") or [])
     if result.get("existing_case_id"):
         step = "existing"
+    elif not result["eligible"] and codes and codes <= _REPLACEMENT_PROBLEMS:
+        # Out of stock, or not a version this product comes in. Not a refusal: ask again.
+        step = "offer_replacement"
     elif not result["eligible"]:
         step = "submit" if settled else "explain_ineligible"
     elif settled:
@@ -637,7 +701,18 @@ def confirm(state: AgentState, runtime: Runtime[TurnContext]) -> Node:
     item = _item_label(q["item"])
     policy = q["citations"][0]["version_label"] if q.get("citations") else None
     under = f" under the {policy} policy" if policy else ""
-    if q.get("requires_review"):
+    replacement = (q.get("replacement") or {}).get("variant")
+    if q.get("action") == "exchange" and q.get("requires_review"):
+        question = (
+            f"An exchange of {item} for {replacement} needs a quick check by our team "
+            "first. Shall I send it for review? Reply yes to confirm."
+        )
+    elif q.get("action") == "exchange":
+        question = (
+            f"I can exchange {item} for {replacement}{under}. "
+            "Do you want me to go ahead? Reply yes to confirm."
+        )
+    elif q.get("requires_review"):
         question = (
             f"A refund of {format_usd(q['amount_cents'])} for {item} needs a quick check "
             f"by our team first. Shall I send it for review? Reply yes to confirm."
@@ -696,6 +771,11 @@ def submit(state: AgentState, runtime: Runtime[TurnContext]) -> Node:
         # from its first line when the thread resumes.
         _log_turn(ctx, state, "pending_review")
         return {"step": "review_wait", "outcome": "pending_review"}
+    if outcome == "replacement_unavailable":
+        # The replacement sold out between the quote and the yes. The service has already
+        # told the shopper and listed what is in stock; wait for their choice.
+        _log_turn(ctx, state, "asked", question_kind="clarify_replacement")
+        return _await_new_choice(state)
     return {"step": "respond", "outcome": outcome}
 
 
@@ -703,6 +783,12 @@ def wait_for_review(state: AgentState, runtime: Runtime[TurnContext]) -> Node:
     """Pause for a supervisor. The decision arrives through a separate authenticated API
     that this workflow cannot call; that API then resumes the thread."""
     decision = interrupt({"waiting_for": "review"})
+    if decision.get("decision") == "replacement_unavailable":
+        # No decision was made: the replacement sold out while this waited. The service
+        # has told the shopper what is in stock; the conversation goes on from there.
+        # (Code after interrupt() runs once, on resume, so logging here is safe.)
+        _log_turn(runtime.context, state, "asked", question_kind="clarify_replacement")
+        return _await_new_choice(state)
     return {"outcome": f"review_{decision.get('decision', 'decided')}", "step": "respond"}
 
 
@@ -718,7 +804,10 @@ def respond(state: AgentState, runtime: Runtime[TurnContext]) -> Node:
             (case["id"],),
         ).fetchone()
         if last is None or last["author_kind"] == "shopper":
-            chat.say(conn, case, text=CUSTOMER_STATUS[case["state"]][1], now=now)
+            status_text = customer_status(
+                case["state"], case["outcome_type"], case["requested_action"]
+            )[1]
+            chat.say(conn, case, text=status_text, now=now)
     _log_turn(ctx, state, state.get("outcome", "responded"))
     return {"pending": None}
 
@@ -839,6 +928,118 @@ def handoff(state: AgentState, runtime: Runtime[TurnContext]) -> Node:
     return {"outcome": "handed_to_staff"}
 
 
+_REPLACEMENT_PROBLEMS = {"replacement_unavailable", "replacement_unknown"}
+
+
+def _await_new_choice(state: AgentState) -> Node:
+    """Wait for the shopper to pick another replacement. Whatever was chosen before no
+    longer stands, so nothing can be confirmed until they say what they want now."""
+    known = dict(state.get("known") or {})
+    for key in ("replacement_variant", "replacement_verified", "confirmed"):
+        known.pop(key, None)
+    return {
+        "known": known,
+        "quote": None,
+        "step": "await_choice",
+        "outcome": "asked",
+        "pending": {
+            "kind": "clarify_replacement",
+            "question": "Which one would you like instead? You can also ask for a refund.",
+        },
+    }
+
+
+def _replacement_question(label: str, in_stock: list[str], problem: str | None = None) -> Node:
+    """The question that puts the choice of replacement to the shopper."""
+    lead = f"{problem} " if problem else ""
+    if in_stock:
+        return {
+            "kind": "clarify_replacement",
+            "options": in_stock,
+            "question": f"{lead}Which {label} would you like instead? "
+            f"In stock: {', '.join(in_stock)}.",
+        }
+    return {
+        "kind": "clarify_action",
+        "question": f"{lead}No other version of {label} is in stock right now. "
+        "Would you like a refund instead?",
+    }
+
+
+def choose_replacement(state: AgentState, runtime: Runtime[TurnContext]) -> Node:
+    """Settle which variant the shopper wants, against the product's real stock list.
+
+    Their own words decide ("a large" on a blue medium is Blue / L). A variant the model
+    suggested without that support is kept, but always confirmed by name before anything
+    happens. If neither gives one variant, ask, listing what is in stock.
+    """
+    ctx = runtime.context
+    known = dict(state["known"])
+    line = _candidate(state, known.get("line_id"))
+    if line is None:
+        return {"step": "handoff"}
+    try:
+        stock = ctx.tools.call("check_inventory", sku=line["sku"])
+    except ToolFailure:
+        return {"step": "handoff"}
+    variants = [v["variant"] for v in stock["variants"]]
+    in_stock = [v["variant"] for v in stock["variants"] if v["available"] >= known["quantity"]]
+
+    variant, how = language.wanted_variant(
+        known.get("replacement_text") or "", line["variant"], variants
+    )
+    verified = how in ("named", "same")
+    if how == "unknown":
+        question = _replacement_question(
+            line["description"], in_stock, f"{line['description']} does not come in {variant}."
+        )
+        return {"known": known, "pending": question, "step": "clarify"}
+    if not verified and known.get("replacement_hint"):
+        variant, hinted = language.wanted_variant(
+            known["replacement_hint"], line["variant"], variants
+        )
+        if hinted not in ("named", "same"):
+            variant = None
+    if variant is None:
+        question = _replacement_question(line["description"], in_stock)
+        return {"known": known, "pending": question, "step": "clarify"}
+
+    known["replacement_variant"] = variant
+    known["replacement_verified"] = verified
+    return {"known": known, "step": "quote"}
+
+
+def offer_replacement(state: AgentState, runtime: Runtime[TurnContext]) -> Node:
+    """The quoted replacement cannot be had. Say so, list what can, and ask. Nothing has
+    been reserved and nothing has changed on the order."""
+    ctx = runtime.context
+    q = state["quote"] or {}
+    wanted = (q.get("replacement") or {}).get("variant") or "that version"
+    description = q["item"]["description"]
+    question = _replacement_question(
+        description,
+        [v for v in q.get("alternatives") or [] if v != wanted],
+        f"Sorry, {description} in {wanted} is not available.",
+    )
+    now = ctx.container.clock.now()
+    with ctx.container.db.tenant_tx(ctx.principal) as conn:
+        case = chat.load_case(conn, state["case_id"], lock=True)  # type: ignore[arg-type]
+        chat.ask(
+            conn,
+            case,
+            text=question["question"],
+            kind="replacement_unavailable",
+            now=now,
+            request_id=ctx.request_id,
+            detail={"wanted": wanted, "alternatives": question.get("options", [])},
+        )
+    _log_turn(ctx, state, "asked", question_kind=question["kind"])
+    known = dict(state["known"])
+    for key in ("replacement_variant", "replacement_verified"):
+        known.pop(key, None)
+    return {"known": known, "pending": question, "quote": None, "outcome": "asked"}
+
+
 # --- wiring -----------------------------------------------------------------------------
 
 
@@ -856,6 +1057,8 @@ def build_graph() -> StateGraph:
         ("wait_for_shopper", wait_for_shopper),
         ("answer_policy", answer_policy),
         ("status", status),
+        ("choose_replacement", choose_replacement),
+        ("offer_replacement", offer_replacement),
         ("quote", quote),
         ("confirm", confirm),
         ("submit", submit),
@@ -879,6 +1082,7 @@ def build_graph() -> StateGraph:
             "answer_policy",
             "status",
             "clarify",
+            "choose_replacement",
             "quote",
             "submit",
             "cancelled",
@@ -886,16 +1090,33 @@ def build_graph() -> StateGraph:
             "handoff",
         ],
     )
+    graph.add_conditional_edges("choose_replacement", _after_plan, ["quote", "clarify", "handoff"])
     graph.add_edge("clarify", "wait_for_shopper")
     graph.add_edge("confirm", "wait_for_shopper")
+    graph.add_edge("offer_replacement", "wait_for_shopper")
     graph.add_edge("wait_for_shopper", "gather")
     graph.add_conditional_edges(
-        "quote", _after_plan, ["existing", "explain_ineligible", "submit", "confirm", "handoff"]
+        "quote",
+        _after_plan,
+        ["existing", "explain_ineligible", "offer_replacement", "submit", "confirm", "handoff"],
     )
     graph.add_conditional_edges(
-        "submit", _after_plan, ["respond", "review_wait", "confirm", "quote", "handoff"]
+        "submit",
+        _after_plan,
+        {
+            "respond": "respond",
+            "review_wait": "review_wait",
+            "confirm": "confirm",
+            "quote": "quote",
+            "handoff": "handoff",
+            "await_choice": "wait_for_shopper",
+        },
     )
-    graph.add_edge("review_wait", "respond")
+    graph.add_conditional_edges(
+        "review_wait",
+        _after_plan,
+        {"respond": "respond", "await_choice": "wait_for_shopper"},
+    )
     for terminal in (
         "answer_policy",
         "status",

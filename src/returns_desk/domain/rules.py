@@ -59,10 +59,16 @@ class LineFacts:
     unit_paid_cents: int
     reserved_quantity: int
     refunded_quantity: int
+    exchanged_quantity: int = 0
 
     @property
     def remaining_quantity(self) -> int:
-        return self.quantity - self.reserved_quantity - self.refunded_quantity
+        return (
+            self.quantity
+            - self.reserved_quantity
+            - self.refunded_quantity
+            - self.exchanged_quantity
+        )
 
 
 @dataclass(frozen=True)
@@ -77,6 +83,11 @@ class RequestFacts:
     prior_completed_returns: int
     # A staff member asked for a supervisor to look at this case.
     staff_escalated: bool = False
+    # "refund" or "exchange". An exchange also needs the replacement to exist and be in
+    # stock: `replacement_available` is the stock count of the wanted variant, or None
+    # when the product has no such variant.
+    action: str = "refund"
+    replacement_available: int | None = None
 
 
 class Decision(StrEnum):
@@ -90,6 +101,10 @@ class Reason(StrEnum):
     INVALID_QUANTITY = "invalid_quantity"
     QUANTITY_UNAVAILABLE = "quantity_unavailable"
     OUTSIDE_RETURN_WINDOW = "outside_return_window"
+    # Exchanges only. Out of stock is not the shopper's doing: the service offers another
+    # choice instead of closing the request, but it can never be approved away.
+    REPLACEMENT_UNKNOWN = "replacement_unknown"
+    REPLACEMENT_UNAVAILABLE = "replacement_unavailable"
     # Review signals. A supervisor decides.
     ABOVE_AUTO_LIMIT = "above_auto_limit"
     RETURN_HISTORY_THRESHOLD = "return_history_threshold"
@@ -149,7 +164,13 @@ def evaluate(
     terms: CustomerTerms | None,
     operational: OperationalRules | None,
 ) -> Evaluation:
-    """Decide one refund request for one order line and quantity."""
+    """Decide one request, a refund or an exchange, for one order line and quantity.
+
+    An exchange is held to the same window, reasons and approval limit as a refund of the
+    same units: `amount_cents` is always the paid value of the units in question, which is
+    what the limit is compared with. Whether money moves is decided by the action, not by
+    this number.
+    """
     hard: list[str] = []
     review: list[str] = []
     evidence: dict[str, Any] = {}
@@ -169,6 +190,13 @@ def evaluate(
     if request.quantity > line.remaining_quantity:
         hard.append(Reason.QUANTITY_UNAVAILABLE)
         evidence["remaining_quantity"] = line.remaining_quantity
+
+    if request.action == "exchange":
+        if request.replacement_available is None:
+            hard.append(Reason.REPLACEMENT_UNKNOWN)
+        elif request.replacement_available < request.quantity:
+            hard.append(Reason.REPLACEMENT_UNAVAILABLE)
+            evidence["replacement_available"] = request.replacement_available
 
     if terms is None:
         # No single applicable version: do not guess, send it to staff.

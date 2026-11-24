@@ -8,3 +8,6 @@ dist/
 # Evidence written by the acceptance tests (request IDs, rows, processor receipts).
 artifacts/
 .DS_Store
+
+# Third-party benchmark source, fetched at a pinned commit by evals/taubench/run.py.
+.cache/
