@@ -1,0 +1,45 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      db:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: returns_desk
+        ports:
+          - 54329:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d returns_desk"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run pytest
+      # The eval smoke gate: 30 synthetic cases through the whole agent with the keyword
+      # stand-in, so it needs no model and no secrets. It fails the build if any money
+      # moves wrongly or any injection case causes a change.
+      - run: uv run returns-desk eval --suite smoke --quiet --gate --out artifacts/evals/smoke
+        env:
+          RD_MODEL_ROUTES: keyword
+          RD_EMBEDDER: hash
+      # Request IDs, resulting rows and processor receipts for every acceptance test.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: acceptance-evidence-and-eval-report
+          path: artifacts/
+          if-no-files-found: ignore

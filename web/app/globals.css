@@ -1,0 +1,384 @@
+:root {
+  --background: #f7f7f5;
+  --surface: #ffffff;
+  --foreground: #1b1b1a;
+  --muted: #6a6a66;
+  --border: #e2e2dd;
+  --accent: #1f5fd1;
+  --accent-contrast: #ffffff;
+  --mine: #e6efff;
+  --ok: #18794e;
+  --warn: #9a6700;
+  --bad: #b42318;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #111211;
+    --surface: #1a1b1a;
+    --foreground: #ededea;
+    --muted: #a0a09a;
+    --border: #2e2f2d;
+    --accent: #7aa7ff;
+    --accent-contrast: #0b1220;
+    --mine: #1d2a44;
+    --ok: #4cc38a;
+    --warn: #e2b93b;
+    --bad: #ff8a80;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+h1 {
+  font-size: 1.6rem;
+  margin: 0 0 0.25rem;
+}
+
+h2 {
+  font-size: 1.05rem;
+  margin: 1.25rem 0 0.5rem;
+}
+
+h3 {
+  font-size: 1rem;
+  margin: 0;
+}
+
+.card h2,
+.card h3 {
+  margin-top: 0;
+}
+
+code {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.85em;
+  overflow-wrap: anywhere;
+}
+
+.page {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+.page.narrow {
+  max-width: 560px;
+  padding-top: 48px;
+}
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 0 12px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 8px;
+}
+
+.columns {
+  display: grid;
+  grid-template-columns: minmax(240px, 320px) 1fr;
+  gap: 20px;
+  align-items: start;
+}
+
+.columns:has(.side.wide) {
+  grid-template-columns: 1fr minmax(300px, 440px);
+}
+
+@media (max-width: 820px) {
+  .columns,
+  .columns:has(.side.wide) {
+    grid-template-columns: 1fr;
+  }
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+}
+
+.card.compact {
+  padding: 10px 12px;
+}
+
+.row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.row.gap {
+  justify-content: flex-start;
+  margin: 8px 0;
+}
+
+.row.wrap {
+  flex-wrap: wrap;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.small {
+  font-size: 0.88em;
+}
+
+.error,
+.notice {
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin: 8px 0;
+  border: 1px solid var(--border);
+}
+
+.error {
+  color: var(--bad);
+  border-color: var(--bad);
+}
+
+.notice {
+  color: var(--ok);
+  border-color: var(--ok);
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+  border-radius: 8px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--accent-contrast);
+  padding: 7px 14px;
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+button.secondary,
+button.chip {
+  background: transparent;
+  color: var(--foreground);
+  border-color: var(--border);
+}
+
+button.chip {
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.88em;
+}
+
+button.chip.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+button.link {
+  background: none;
+  border: none;
+  color: var(--accent);
+  padding: 0;
+}
+
+button.listitem {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  background: var(--surface);
+  color: var(--foreground);
+  border: 1px solid var(--border);
+  margin: 6px 0;
+}
+
+button.listitem.active {
+  border-color: var(--accent);
+}
+
+.people {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.people button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: transparent;
+  color: var(--foreground);
+  border-color: var(--border);
+  margin: 4px 0;
+}
+
+.person {
+  flex: 1;
+  text-align: left;
+}
+
+.pill {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 1px 9px;
+  font-size: 0.8em;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.pill.state-resolved,
+.pill.status-refunded,
+.pill.status-answered {
+  color: var(--ok);
+  border-color: var(--ok);
+}
+
+.pill.state-awaiting_supervisor,
+.pill.state-awaiting_customer,
+.pill.state-reconciling,
+.pill.state-processing,
+.pill.status-in_review,
+.pill.status-pending_verification,
+.pill.status-needs_your_reply,
+.pill.status-needs_your_confirmation,
+.pill.status-processing {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
+.pill.state-declined,
+.pill.status-declined {
+  color: var(--bad);
+  border-color: var(--bad);
+}
+
+.lines {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 14px;
+  margin: 8px 0;
+}
+
+.facts dt {
+  color: var(--muted);
+}
+
+.facts dd {
+  margin: 0;
+  min-width: 0;
+}
+
+details {
+  margin-top: 8px;
+}
+
+summary {
+  cursor: pointer;
+  color: var(--accent);
+}
+
+blockquote {
+  margin: 8px 0 0;
+  padding: 6px 12px;
+  border-left: 3px solid var(--border);
+}
+
+.messages {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0;
+  min-height: 80px;
+}
+
+.messages.inline {
+  max-height: 340px;
+  overflow-y: auto;
+}
+
+.bubble {
+  max-width: 82%;
+  padding: 8px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.bubble.mine {
+  align-self: flex-end;
+  background: var(--mine);
+}
+
+.bubble.theirs {
+  align-self: flex-start;
+}
+
+.author {
+  display: block;
+  font-size: 0.75em;
+  color: var(--muted);
+  text-transform: capitalize;
+}
+
+.composer {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+input,
+textarea {
+  font: inherit;
+  color: var(--foreground);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  width: 100%;
+}
+
+textarea {
+  min-height: 60px;
+  margin-top: 8px;
+  resize: vertical;
+}
+
+.composer input {
+  flex: 1;
+}
+
+.pill.role-supervisor {
+  color: var(--accent);
+  border-color: var(--accent);
+}

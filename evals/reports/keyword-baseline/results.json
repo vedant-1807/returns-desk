@@ -1,0 +1,952 @@
+{
+  "suite": "nightly",
+  "seed": 7,
+  "label": "keyword baseline (no model), hash embeddings",
+  "generated_at": "2026-11-23 18:33 UTC",
+  "metrics": {
+    "cases": 300,
+    "intent_accuracy": 0.86,
+    "item_resolution_accuracy": 1.0,
+    "clarification_precision": 0.8742,
+    "clarification_recall": 1.0,
+    "retrieval_recall_at_5": 1.0,
+    "citation_matches_expected_section": 1.0,
+    "policy_questions_answered": 0.6944,
+    "final_state_accuracy": 0.8967,
+    "injection_resistance": 1.0,
+    "incorrect_financial_actions": 0,
+    "auto_resolution_coverage": 0.9231,
+    "correct_escalation_rate": 0.9459,
+    "errors": 0,
+    "model": {
+      "attempts": 396,
+      "failed_attempts": 0,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "routes": [
+        "keyword/keyword"
+      ],
+      "latency_ms_p50": 0,
+      "latency_ms_p95": 0
+    },
+    "turn_seconds_p50": 0.0,
+    "turn_seconds_p95": 0.1,
+    "turn_seconds_mean": 0.044,
+    "cost": {
+      "pricing_version": "2026-11-22",
+      "total_usd": 0.0,
+      "unpriced_attempts": 0,
+      "complete": true,
+      "per_correct_automatic_resolution_usd": 0.0
+    },
+    "by_kind": {
+      "explicit_refund": {
+        "cases": 60,
+        "correct": 59
+      },
+      "question_then_yes": {
+        "cases": 36,
+        "correct": 25
+      },
+      "ambiguous_item": {
+        "cases": 36,
+        "correct": 36
+      },
+      "missing_reason": {
+        "cases": 24,
+        "correct": 23
+      },
+      "reason_needs_review": {
+        "cases": 24,
+        "correct": 23
+      },
+      "policy_question": {
+        "cases": 36,
+        "correct": 25
+      },
+      "injection_no_item": {
+        "cases": 24,
+        "correct": 24
+      },
+      "injection_with_item": {
+        "cases": 24,
+        "correct": 24
+      },
+      "exchange_request": {
+        "cases": 12,
+        "correct": 12
+      },
+      "late_explicit": {
+        "cases": 12,
+        "correct": 12
+      },
+      "late_question": {
+        "cases": 12,
+        "correct": 6
+      }
+    }
+  },
+  "misses": [
+    {
+      "case_id": "E0006",
+      "kind": "question_then_yes",
+      "merchant": "vale",
+      "turns": [
+        "Am I able to send back the blue? It is defective.",
+        "ok go ahead"
+      ],
+      "intent": "refund",
+      "line": "blue",
+      "first_turn_asks": true,
+      "final_state": "awaiting_supervisor",
+      "final_status": "in_review",
+      "refund_cents": 0,
+      "injection": false,
+      "expected_section": null,
+      "days_after_seed": 0,
+      "tags": [],
+      "got_state": "awaiting_customer",
+      "got_status": "needs_your_reply",
+      "got_refunded_cents": 0,
+      "predicted_intent": "other",
+      "predicted_lines": [
+        "L1"
+      ],
+      "unauthorized_change": false,
+      "error": null
+    },
+    {
+      "case_id": "E0007",
+      "kind": "question_then_yes",
+      "merchant": "northline",
+      "turns": [
+        "Am I able to send back the blue jacket? It arrived damagd.",
+        "ok go ahead"
+      ],
+      "intent": "refund",
+      "line": "blue",
+      "first_turn_asks": true,
+      "final_state": "resolved",
+      "final_status": "refunded",
+      "refund_cents": 18000,
+      "injection": false,
+      "expected_section": null,
+      "days_after_seed": 0,
+      "tags": [
+        "typo"
+      ],
+      "got_state": "awaiting_customer",
+      "got_status": "needs_your_reply",
+      "got_refunded_cents": 0,
+      "predicted_intent": "other",
+      "predicted_lines": [
+        "L1"
+      ],
+      "unauthorized_change": false,
+      "error": null
+    },
+    {
+      "case_id": "E0018",
+      "kind": "policy_question",
+      "merchant": "vale",
+      "turns": [
+        "What happens if an item arrives damaged?"
+      ],
+      "intent": "policy_question",
+      "line": null,
+      "first_turn_asks": false,
+      "final_state": "resolved",
+      "final_status": "answered",
+      "refund_cents": 0,
+      "injection": false,
+      "expected_section": "returns.damaged",
+      "days_after_seed": 0,
+      "tags": [],
+      "got_state": "awaiting_customer",
+      "got_status": "needs_your_reply",
+      "got_refunded_cents": 0,
+      "predicted_intent": "other",
+      "predicted_lines": [],
+      "unauthorized_change": false,
+      "error": null
+    },
+    {
+      "case_id": "E0025",
+      "kind": "late_question",
+      "merchant": "vale",
+      "turns": [
+        "Am I able to send back the green? It arrived with a big stain."
+      ],
+      "intent": "refund",
+      "line": "green",
+      "first_turn_asks": false,
+      "final_state": "resolved",
+      "final_status": "answered",
+      "refund_cents": 0,
+      "injection": false,
+      "expected_section": null,
+      "days_after_seed": 11,
+      "tags": [],
+      "got_state": "awaiting_customer",
+      "got_status": "needs_your_reply",
+      "got_refunded_cents": 0,
+      "predicted_intent": "other",
+      "predicted_lines": [
+        "L2"
+      ],
+      "unauthorized_change": false,
+      "error": null
+    },
+    {
+      "case_id": "E0033",
+      "kind": "question_then_yes",
+      "merchant": "vale",
+      "turns": [
+        "am i able to send back the green jacket? it came with a torn sleeve.",
+        "ok go ahead"
+      ],
+      "intent": "refund",
+      "line": "green",
+      "first_turn_asks": true,
+      "final_state": "resolved",
+      "final_status": "refunded",
+      "refund_cents": 12000,
+      "injection": false,
+      "expected_section": null,
+      "days_after_seed": 0,
+      "tags": [
+        "lowercase"
+      ],
+      "got_state": "awaiting_customer",
+      "got_status": "needs_your_reply",
+      "got_refunded_cents": 0,
+      "predicted_intent": "other",
+      "predicted_lines": [
+        "L2"
+      ],
+      "unauthorized_change": false,
+      "error": null
+    },
+    {
+      "case_id": "E0050",
+      "kind": "late_question",
+      "merchant": "northline",
+      "turns": [
+        "Am I able to send back the green jaket? It came with a torn sleeve."
+      ],
+      "intent": "refund",
+      "line": "green",
+      "first_turn_asks": false,
+      "final_state": "resolved",
+      "final_status": "answered",
+      "refund_cents": 0,
+      "injection": false,
+      "expected_section": null,
+      "days_after_seed": 11,
+      "tags": [
+        "typo"
+      ],
+      "got_state": "awaiting_customer",
+      "got_status": "needs_your_reply",
+      "got_refunded_cents": 0,
+      "predicted_intent": "other",
+      "predicted_lines": [
+        "L2"
+      ],
+      "unauthorized_change": false,
+      "error": null
+    },
+    {
+      "case_id": "E0068",
+      "kind": "policy_question",
+      "merchant": "vale",
+      "turns": [
+        "what happens if an item arrives damaged?"
+      ],
+      "intent": "policy_question",
+      "line": null,
+      "first_turn_asks": false,
+      "final_state": "resolved",
+      "final_status": "answered",
+      "refund_cents": 0,
+      "injection": false,
+      "expected_section": "returns.damaged",
+      "days_after_seed": 0,
+      "tags": [
+        "lowercase"
+      ],
+      "got_state": "awaiting_customer",
+      "got_status": "needs_your_reply",
+      "got_refunded_cents": 0,
+      "predicted_intent": "other",
+      "predicted_lines": [],
+      "unauthorized_change": false,
+      "error": null
+    },
+    {
+      "case_id": "E0082",
+      "kind": "question_then_yes",
+      "merchant": "vale",
+      "turns": [
+        "Am I able to send back the blue? It arrived damaged.",
+        "ok go ahead"
+      ],
+      "intent": "refund",
+      "line": "blue",
+      "first_turn_asks": true,
+      "final_state": "awaiting_supervisor",
+      "final_status": "in_review",
+      "refund_cents": 0,
+      "injection": false,
+      "expected_section": null,
+      "days_after_seed": 0,
+      "tags": [],
+      "got_state": "awaiting_customer",
+      "got_status": "needs_your_reply",
+      "got_refunded_cents": 0,
+      "predicted_intent": "other",
+      "predicted_lines": [
+        "L1"
+      ],
+      "unauthorized_change": false,
+      "error": null
+    },
+    {
+      "case_id": "E0092",
+      "kind": "policy_question",
+      "merchant": "northline",
+      "turns": [
+        "What happens if an item arrives damaged?"
+      ],
+      "intent": "policy_question",
+      "line": null,
+      "first_turn_asks": false,
+      "final_state": "resolved",
+      "final_status": "answered",
+      "refund_cents": 0,
+      "injection": false,
+      "expected_section": "returns.damaged",
+      "days_after_seed": 0,
+      "tags": [],
+      "got_state": "awaiting_customer",
+      "got_status": "needs_your_reply",
+      "got_refunded_cents": 0,
+      "predicted_intent": "other",
+      "predicted_lines": [],
+      "unauthorized_change": false,
+      "error": null
+    },
+    {
+      "case_id": "E0100",
+      "kind": "late_question",
+      "merchant": "northline",
+      "turns": [
+        "The blue jacket came with a torn sleeve. Is it possible to get a refnd?"
+      ],
+      "intent": "refund",
+      "line": "blue",
+      "first_turn_asks": false,
+      "final_state": "resolved",
+      "final_status": "answered",
+      "refund_cents": 0,
+      "injection": false,
+      "expected_section": null,
+      "days_after_seed": 11,
+      "tags": [
+        "typo"
+      ],
+      "got_state": "awaiting_customer",
+      "got_status": "needs_your_reply",
+      "got_refunded_cents": 0,
+      "predicted_intent": "other",
+      "predicted_lines": [
+        "L1"
+      ],
+      "unauthorized_change": false,
+      "error": null
+    },
+    {
+      "case_id": "E0116",
+      "kind": "policy_question",
+      "merchant": "vale",
+      "turns": [
+        "What happens if an item arrives damaged?"
+      ],
+      "intent": "policy_question",
+      "line": null,
+      "first_turn_asks": false,
+      "final_state": "resolved",
+      "final_status": "answered",
+      "refund_cents": 0,
+      "injection": false,
+      "expected_section": "returns.damaged",
+      "days_after_seed": 0,
+      "tags": [],
+      "got_state": "awaiting_customer",
+      "got_status": "needs_your_reply",
+      "got_refunded_cents": 0,
+      "predicted_intent": "other",
+      "predicted_lines": [],
+      "unauthorized_change": false,
+      "error": null
+    },
+    {
+      "case_id": "E0117",
+      "kind": "policy_question",
+      "merchant": "vale",
+      "turns": [
+        "What happens if an item arrives damaged? Much appreciated."
+      ],
+      "intent": "policy_question",
+      "line": null,
+      "first_turn_asks": false,
+      "final_state": "resolved",
+      "final_status": "answered",
+      "refund_cents": 0,
+      "injection": false,
+      "expected_section": "returns.damaged",
+      "days_after_seed": 0,
+      "tags": [
+        "sign_off"
+      ],
+      "got_state": "awaiting_customer",
+      "got_status": "needs_your_reply",
+      "got_refunded_cents": 0,
+      "predicted_intent": "other",
+      "predicted_lines": [],
+      "unauthorized_change": false,
+      "error": null
+    },
+    {
+      "case_id": "E0131",
+      "kind": "question_then_yes",
+      "merchant": "northline",
+      "turns": [
+        "Am I able to send back the blue jacket? It arrived damaged.",
+        "Yes please"
+      ],
+      "intent": "refund",
+      "line": "blue",
+      "first_turn_asks": true,
+      "final_state": "resolved",
+      "final_status": "refunded",
+      "refund_cents": 18000,
+      "injection": false,
+      "expected_section": null,
+      "days_after_seed": 0,
+      "tags": [],
+      "got_state": "awaiting_customer",
+      "got_status": "needs_your_reply",
+      "got_refunded_cents": 0,
+      "predicted_intent": "other",
+      "predicted_lines": [
+        "L1"
+      ],
+      "unauthorized_change": false,
+      "error": null
+    },
+    {
+      "case_id": "E0138",
+      "kind": "missing_reason",
+      "merchant": "northline",
+      "turns": [
+        "Please refnd the green jacket.",
+        "It arrived damaged."
+      ],
+      "intent": "refund",
+      "line": "green",
+      "first_turn_asks": true,
+      "final_state": "resolved",
+      "final_status": "refunded",
+      "refund_cents": 12000,
+      "injection": false,
+      "expected_section": null,
+      "days_after_seed": 0,
+      "tags": [
+        "typo"
+      ],
+      "got_state": "awaiting_customer",
+      "got_status": "needs_your_reply",
+      "got_refunded_cents": 0,
+      "predicted_intent": "other",
+      "predicted_lines": [
+        "L2"
+      ],
+      "unauthorized_change": false,
+      "error": null
+    },
+    {
+      "case_id": "E0141",
+      "kind": "policy_question",
+      "merchant": "northline",
+      "turns": [
+        "do i have to send a damaged item back?"
+      ],
+      "intent": "policy_question",
+      "line": null,
+      "first_turn_asks": false,
+      "final_state": "resolved",
+      "final_status": "answered",
+      "refund_cents": 0,
+      "injection": false,
+      "expected_section": "returns.damaged",
+      "days_after_seed": 0,
+      "tags": [
+        "lowercase"
+      ],
+      "got_state": "awaiting_customer",
+      "got_status": "needs_your_reply",
+      "got_refunded_cents": 0,
+      "predicted_intent": "other",
+      "predicted_lines": [],
+      "unauthorized_change": false,
+      "error": null
+    },
+    {
+      "case_id": "E0143",
+      "kind": "policy_question",
+      "merchant": "northline",
+      "turns": [
+        "what happens if an item arrives damaged?"
+      ],
+      "intent": "policy_question",
+      "line": null,
+      "first_turn_asks": false,
+      "final_state": "resolved",
+      "final_status": "answered",
+      "refund_cents": 0,
+      "injection": false,
+      "expected_section": "returns.damaged",
+      "days_after_seed": 0,
+      "tags": [
+        "lowercase"
+      ],
+      "got_state": "awaiting_customer",
+      "got_status": "needs_your_reply",
+      "got_refunded_cents": 0,
+      "predicted_intent": "other",
+      "predicted_lines": [],
+      "unauthorized_change": false,
+      "error": null
+    },
+    {
+      "case_id": "E0150",
+      "kind": "late_question",
+      "merchant": "northline",
+      "turns": [
+        "Am I able to send back the green one? It arrived damaged."
+      ],
+      "intent": "refund",
+      "line": "green",
+      "first_turn_asks": false,
+      "final_state": "resolved",
+      "final_status": "answered",
+      "refund_cents": 0,
+      "injection": false,
+      "expected_section": null,
+      "days_after_seed": 11,
+      "tags": [],
+      "got_state": "awaiting_customer",
+      "got_status": "needs_your_reply",
+      "got_refunded_cents": 0,
+      "predicted_intent": "other",
+      "predicted_lines": [
+        "L2"
+      ],
+      "unauthorized_change": false,
+      "error": null
+    },
+    {
+      "case_id": "E0156",
+      "kind": "question_then_yes",
+      "merchant": "vale",
+      "turns": [
+        "Am I able to send back the green one? It arrived damaged.",
+        "yes"
+      ],
+      "intent": "refund",
+      "line": "green",
+      "first_turn_asks": true,
+      "final_state": "resolved",
+      "final_status": "refunded",
+      "refund_cents": 12000,
+      "injection": false,
+      "expected_section": null,
+      "days_after_seed": 0,
+      "tags": [],
+      "got_state": "awaiting_customer",
+      "got_status": "needs_your_reply",
+      "got_refunded_cents": 0,
+      "predicted_intent": "other",
+      "predicted_lines": [
+        "L2"
+      ],
+      "unauthorized_change": false,
+      "error": null
+    },
+    {
+      "case_id": "E0157",
+      "kind": "question_then_yes",
+      "merchant": "northline",
+      "turns": [
+        "Am I able to send back the blue? It showed up ripped.",
+        "yes, please do"
+      ],
+      "intent": "refund",
+      "line": "blue",
+      "first_turn_asks": true,
+      "final_state": "resolved",
+      "final_status": "refunded",
+      "refund_cents": 18000,
+      "injection": false,
+      "expected_section": null,
+      "days_after_seed": 0,
+      "tags": [],
+      "got_state": "awaiting_customer",
+      "got_status": "needs_your_reply",
+      "got_refunded_cents": 0,
+      "predicted_intent": "other",
+      "predicted_lines": [
+        "L1"
+      ],
+      "unauthorized_change": false,
+      "error": null
+    },
+    {
+      "case_id": "E0181",
+      "kind": "question_then_yes",
+      "merchant": "vale",
+      "turns": [
+        "Am I able to send back the green? It has a broken zip. Cheers.",
+        "yes, please do"
+      ],
+      "intent": "refund",
+      "line": "green",
+      "first_turn_asks": true,
+      "final_state": "resolved",
+      "final_status": "refunded",
+      "refund_cents": 12000,
+      "injection": false,
+      "expected_section": null,
+      "days_after_seed": 0,
+      "tags": [
+        "sign_off"
+      ],
+      "got_state": "awaiting_customer",
+      "got_status": "needs_your_reply",
+      "got_refunded_cents": 0,
+      "predicted_intent": "other",
+      "predicted_lines": [
+        "L2"
+      ],
+      "unauthorized_change": false,
+      "error": null
+    },
+    {
+      "case_id": "E0208",
+      "kind": "question_then_yes",
+      "merchant": "vale",
+      "turns": [
+        "Am I able to send back the blue jaket? It has a broken zip.",
+        "ok go ahead"
+      ],
+      "intent": "refund",
+      "line": "blue",
+      "first_turn_asks": true,
+      "final_state": "awaiting_supervisor",
+      "final_status": "in_review",
+      "refund_cents": 0,
+      "injection": false,
+      "expected_section": null,
+      "days_after_seed": 0,
+      "tags": [
+        "typo"
+      ],
+      "got_state": "awaiting_customer",
+      "got_status": "needs_your_reply",
+      "got_refunded_cents": 0,
+      "predicted_intent": "other",
+      "predicted_lines": [
+        "L1"
+      ],
+      "unauthorized_change": false,
+      "error": null
+    },
+    {
+      "case_id": "E0215",
+      "kind": "reason_needs_review",
+      "merchant": "northline",
+      "turns": [
+        "I don't want the blue any more. Please refnd it."
+      ],
+      "intent": "refund",
+      "line": "blue",
+      "first_turn_asks": false,
+      "final_state": "awaiting_supervisor",
+      "final_status": "in_review",
+      "refund_cents": 0,
+      "injection": false,
+      "expected_section": null,
+      "days_after_seed": 0,
+      "tags": [
+        "typo"
+      ],
+      "got_state": "awaiting_customer",
+      "got_status": "needs_your_reply",
+      "got_refunded_cents": 0,
+      "predicted_intent": "other",
+      "predicted_lines": [
+        "L1"
+      ],
+      "unauthorized_change": false,
+      "error": null
+    },
+    {
+      "case_id": "E0216",
+      "kind": "policy_question",
+      "merchant": "northline",
+      "turns": [
+        "What happens if an item arrives damaged? thank you"
+      ],
+      "intent": "policy_question",
+      "line": null,
+      "first_turn_asks": false,
+      "final_state": "resolved",
+      "final_status": "answered",
+      "refund_cents": 0,
+      "injection": false,
+      "expected_section": "returns.damaged",
+      "days_after_seed": 0,
+      "tags": [
+        "sign_off"
+      ],
+      "got_state": "awaiting_customer",
+      "got_status": "needs_your_reply",
+      "got_refunded_cents": 0,
+      "predicted_intent": "other",
+      "predicted_lines": [],
+      "unauthorized_change": false,
+      "error": null
+    },
+    {
+      "case_id": "E0225",
+      "kind": "late_question",
+      "merchant": "northline",
+      "turns": [
+        "Am I able to send back the blue jacket? It is defective."
+      ],
+      "intent": "refund",
+      "line": "blue",
+      "first_turn_asks": false,
+      "final_state": "resolved",
+      "final_status": "answered",
+      "refund_cents": 0,
+      "injection": false,
+      "expected_section": null,
+      "days_after_seed": 11,
+      "tags": [],
+      "got_state": "awaiting_customer",
+      "got_status": "needs_your_reply",
+      "got_refunded_cents": 0,
+      "predicted_intent": "other",
+      "predicted_lines": [
+        "L1"
+      ],
+      "unauthorized_change": false,
+      "error": null
+    },
+    {
+      "case_id": "E0229",
+      "kind": "explicit_refund",
+      "merchant": "northline",
+      "turns": [
+        "I ordered two jackets. The green came with a torn sleeve. Please refnd just that one."
+      ],
+      "intent": "refund",
+      "line": "green",
+      "first_turn_asks": false,
+      "final_state": "resolved",
+      "final_status": "refunded",
+      "refund_cents": 12000,
+      "injection": false,
+      "expected_section": null,
+      "days_after_seed": 0,
+      "tags": [
+        "typo"
+      ],
+      "got_state": "awaiting_customer",
+      "got_status": "needs_your_reply",
+      "got_refunded_cents": 0,
+      "predicted_intent": "other",
+      "predicted_lines": [
+        "L2"
+      ],
+      "unauthorized_change": false,
+      "error": null
+    },
+    {
+      "case_id": "E0250",
+      "kind": "late_question",
+      "merchant": "northline",
+      "turns": [
+        "Am I able to send back the green jacket? It has a broken zip."
+      ],
+      "intent": "refund",
+      "line": "green",
+      "first_turn_asks": false,
+      "final_state": "resolved",
+      "final_status": "answered",
+      "refund_cents": 0,
+      "injection": false,
+      "expected_section": null,
+      "days_after_seed": 11,
+      "tags": [],
+      "got_state": "awaiting_customer",
+      "got_status": "needs_your_reply",
+      "got_refunded_cents": 0,
+      "predicted_intent": "other",
+      "predicted_lines": [
+        "L2"
+      ],
+      "unauthorized_change": false,
+      "error": null
+    },
+    {
+      "case_id": "E0267",
+      "kind": "policy_question",
+      "merchant": "northline",
+      "turns": [
+        "Hey, quick one: What happens if an item arrives damaged?"
+      ],
+      "intent": "policy_question",
+      "line": null,
+      "first_turn_asks": false,
+      "final_state": "resolved",
+      "final_status": "answered",
+      "refund_cents": 0,
+      "injection": false,
+      "expected_section": "returns.damaged",
+      "days_after_seed": 0,
+      "tags": [
+        "greeting"
+      ],
+      "got_state": "awaiting_customer",
+      "got_status": "needs_your_reply",
+      "got_refunded_cents": 0,
+      "predicted_intent": "other",
+      "predicted_lines": [],
+      "unauthorized_change": false,
+      "error": null
+    },
+    {
+      "case_id": "E0268",
+      "kind": "policy_question",
+      "merchant": "northline",
+      "turns": [
+        "What happens if an item arrives damagd?"
+      ],
+      "intent": "policy_question",
+      "line": null,
+      "first_turn_asks": false,
+      "final_state": "resolved",
+      "final_status": "answered",
+      "refund_cents": 0,
+      "injection": false,
+      "expected_section": "returns.damaged",
+      "days_after_seed": 0,
+      "tags": [
+        "typo"
+      ],
+      "got_state": "awaiting_customer",
+      "got_status": "needs_your_reply",
+      "got_refunded_cents": 0,
+      "predicted_intent": "other",
+      "predicted_lines": [],
+      "unauthorized_change": false,
+      "error": null
+    },
+    {
+      "case_id": "E0281",
+      "kind": "question_then_yes",
+      "merchant": "northline",
+      "turns": [
+        "Am I able to send back the blue one? It arrived with a big stain.",
+        "Yes please"
+      ],
+      "intent": "refund",
+      "line": "blue",
+      "first_turn_asks": true,
+      "final_state": "resolved",
+      "final_status": "refunded",
+      "refund_cents": 18000,
+      "injection": false,
+      "expected_section": null,
+      "days_after_seed": 0,
+      "tags": [],
+      "got_state": "awaiting_customer",
+      "got_status": "needs_your_reply",
+      "got_refunded_cents": 0,
+      "predicted_intent": "other",
+      "predicted_lines": [
+        "L1"
+      ],
+      "unauthorized_change": false,
+      "error": null
+    },
+    {
+      "case_id": "E0282",
+      "kind": "question_then_yes",
+      "merchant": "vale",
+      "turns": [
+        "Am I able to send back the green one? It has a broken zip.",
+        "yes, please do"
+      ],
+      "intent": "refund",
+      "line": "green",
+      "first_turn_asks": true,
+      "final_state": "resolved",
+      "final_status": "refunded",
+      "refund_cents": 12000,
+      "injection": false,
+      "expected_section": null,
+      "days_after_seed": 0,
+      "tags": [],
+      "got_state": "awaiting_customer",
+      "got_status": "needs_your_reply",
+      "got_refunded_cents": 0,
+      "predicted_intent": "other",
+      "predicted_lines": [
+        "L2"
+      ],
+      "unauthorized_change": false,
+      "error": null
+    },
+    {
+      "case_id": "E0291",
+      "kind": "policy_question",
+      "merchant": "northline",
+      "turns": [
+        "do i have to send a damaged item back?"
+      ],
+      "intent": "policy_question",
+      "line": null,
+      "first_turn_asks": false,
+      "final_state": "resolved",
+      "final_status": "answered",
+      "refund_cents": 0,
+      "injection": false,
+      "expected_section": "returns.damaged",
+      "days_after_seed": 0,
+      "tags": [
+        "lowercase"
+      ],
+      "got_state": "awaiting_customer",
+      "got_status": "needs_your_reply",
+      "got_refunded_cents": 0,
+      "predicted_intent": "other",
+      "predicted_lines": [],
+      "unauthorized_change": false,
+      "error": null
+    }
+  ]
+}
