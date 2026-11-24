@@ -30,7 +30,7 @@ _REQUEST_MARKER = re.compile(
     r"refund (it|this|that|them|the|my|just|me|both)|"
     r"(i|we) (want|need|would like|'d like|demand|expect) (a|my|the|to|you to)|"
     r"(i|we)'d like (a|my|the|to)|"
-    r"give me (a|my|the) refund|(my|the) money back|"
+    r"give me (a|my|the) refund|give me (my|the) money back|"
     r"(go ahead|do it|process (it|the|my|a) refund|issue (a|the|my) refund)|"
     r"can you (please )?(refund|return|process|issue|exchange|swap|replace|send)|"
     r"could you (please )?(refund|return|process|issue|exchange|swap|replace|send)|"

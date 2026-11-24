@@ -201,6 +201,34 @@ _EXCHANGE_UNAVAILABLE = [
 ]
 
 
+# The templates a model may rewrite, by kind. Policy questions and attacks stay hand-written:
+# their expected outcome depends on exact wording.
+TEMPLATES: dict[str, list[str]] = {
+    "explicit": _EXPLICIT,
+    "question": _QUESTION,
+    "ambiguous": _AMBIGUOUS,
+    "no_reason": _NO_REASON,
+    "changed_mind": _CHANGED_MIND,
+    "exchange_explicit": _EXCHANGE_EXPLICIT,
+    "exchange_question": _EXCHANGE_QUESTION,
+    "exchange_unavailable": _EXCHANGE_UNAVAILABLE,
+}
+
+
+def _phrasings(kind: str) -> list[str]:
+    """The hand-written templates of a kind, plus the model-written rewrites of them that
+    passed the fact checks (see paraphrase.py). Each rewrite is tagged in the case."""
+    from returns_desk.evals import paraphrase
+
+    return [*TEMPLATES[kind], *paraphrase.load().get(kind, [])]
+
+
+def _choose(kind: str, rng: random.Random) -> tuple[str, list[str]]:
+    options = _phrasings(kind)
+    text = rng.choice(options)
+    return text, ([] if text in TEMPLATES[kind] else ["llm_paraphrase"])
+
+
 def _noise(text: str, rng: random.Random) -> tuple[str, list[str]]:
     """Make a message a little messier, the way typed chat is."""
     tags: list[str] = []
@@ -265,7 +293,9 @@ def _pick(rng: random.Random) -> tuple[str, str, str, str]:
 
 def _explicit(rng: random.Random) -> EvalCase:
     merchant, line, color, damage = _pick(rng)
-    text, tags = _noise(rng.choice(_EXPLICIT).format(color=color, damage=damage), rng)
+    template, source = _choose("explicit", rng)
+    text, tags = _noise(template.format(color=color, damage=damage), rng)
+    tags = [*tags, *source]
     state, status, cents = _outcome(ground_truth(merchant, line, "damaged"), line, explicit=True)
     return EvalCase(
         "",
@@ -284,7 +314,9 @@ def _explicit(rng: random.Random) -> EvalCase:
 
 def _question(rng: random.Random) -> EvalCase:
     merchant, line, color, damage = _pick(rng)
-    text, tags = _noise(rng.choice(_QUESTION).format(color=color, damage=damage), rng)
+    template, source = _choose("question", rng)
+    text, tags = _noise(template.format(color=color, damage=damage), rng)
+    tags = [*tags, *source]
     state, status, cents = _outcome(ground_truth(merchant, line, "damaged"), line, explicit=True)
     reply = rng.choice(["yes", "Yes please", "ok go ahead", "yes, please do"])
     return EvalCase(
@@ -304,7 +336,9 @@ def _question(rng: random.Random) -> EvalCase:
 
 def _ambiguous(rng: random.Random) -> EvalCase:
     merchant, line, _, damage = _pick(rng)
-    text, tags = _noise(rng.choice(_AMBIGUOUS).format(damage=damage), rng)
+    template, source = _choose("ambiguous", rng)
+    text, tags = _noise(template.format(damage=damage), rng)
+    tags = [*tags, *source]
     state, status, cents = _outcome(ground_truth(merchant, line, "damaged"), line, explicit=True)
     reply = rng.choice([f"the {line} one", f"{line}", f"The {line} jacket"])
     return EvalCase(
@@ -324,7 +358,9 @@ def _ambiguous(rng: random.Random) -> EvalCase:
 
 def _no_reason(rng: random.Random) -> EvalCase:
     merchant, line, color, _ = _pick(rng)
-    text, tags = _noise(rng.choice(_NO_REASON).format(color=color), rng)
+    template, source = _choose("no_reason", rng)
+    text, tags = _noise(template.format(color=color), rng)
+    tags = [*tags, *source]
     state, status, cents = _outcome(ground_truth(merchant, line, "damaged"), line, explicit=True)
     return EvalCase(
         "",
@@ -343,7 +379,9 @@ def _no_reason(rng: random.Random) -> EvalCase:
 
 def _changed_mind(rng: random.Random) -> EvalCase:
     merchant, line, color, _ = _pick(rng)
-    text, tags = _noise(rng.choice(_CHANGED_MIND).format(color=color), rng)
+    template, source = _choose("changed_mind", rng)
+    text, tags = _noise(template.format(color=color), rng)
+    tags = [*tags, *source]
     state, status, cents = _outcome(
         ground_truth(merchant, line, "changed_mind"), line, explicit=True
     )
@@ -446,7 +484,9 @@ def _large(line: str) -> str:
 
 def _exchange_explicit(rng: random.Random) -> EvalCase:
     merchant, line, color, damage = _pick(rng)
-    text, tags = _noise(rng.choice(_EXCHANGE_EXPLICIT).format(color=color, damage=damage), rng)
+    template, source = _choose("exchange_explicit", rng)
+    text, tags = _noise(template.format(color=color, damage=damage), rng)
+    tags = [*tags, *source]
     decision = ground_truth(merchant, line, "damaged", replacement=_large(line))
     state, status, cents = _outcome(decision, line, explicit=True, exchange=True)
     return EvalCase(
@@ -467,7 +507,9 @@ def _exchange_explicit(rng: random.Random) -> EvalCase:
 
 def _exchange_question(rng: random.Random) -> EvalCase:
     merchant, line, color, damage = _pick(rng)
-    text, tags = _noise(rng.choice(_EXCHANGE_QUESTION).format(color=color, damage=damage), rng)
+    template, source = _choose("exchange_question", rng)
+    text, tags = _noise(template.format(color=color, damage=damage), rng)
+    tags = [*tags, *source]
     decision = ground_truth(merchant, line, "damaged", replacement=_large(line))
     state, status, cents = _outcome(decision, line, explicit=True, exchange=True)
     return EvalCase(
@@ -488,7 +530,9 @@ def _exchange_question(rng: random.Random) -> EvalCase:
 
 def _exchange_unavailable(rng: random.Random) -> EvalCase:
     merchant, line, color, damage = _pick(rng)
-    text, tags = _noise(rng.choice(_EXCHANGE_UNAVAILABLE).format(color=color, damage=damage), rng)
+    template, source = _choose("exchange_unavailable", rng)
+    text, tags = _noise(template.format(color=color, damage=damage), rng)
+    tags = [*tags, *source]
     # The small is sold out in blue and does not exist in green. Either way the rules
     # refuse this replacement, and that puts the choice back with the shopper: one
     # question, and no change to stock or to the order.
@@ -511,7 +555,9 @@ def _exchange_unavailable(rng: random.Random) -> EvalCase:
 
 def _late_explicit(rng: random.Random) -> EvalCase:
     merchant, line, color, damage = _pick(rng)
-    text, tags = _noise(rng.choice(_EXPLICIT).format(color=color, damage=damage), rng)
+    template, source = _choose("explicit", rng)
+    text, tags = _noise(template.format(color=color, damage=damage), rng)
+    tags = [*tags, *source]
     state, status, cents = _outcome(
         ground_truth(merchant, line, "damaged", 11), line, explicit=True
     )
@@ -533,7 +579,9 @@ def _late_explicit(rng: random.Random) -> EvalCase:
 
 def _late_question(rng: random.Random) -> EvalCase:
     merchant, line, color, damage = _pick(rng)
-    text, tags = _noise(rng.choice(_QUESTION).format(color=color, damage=damage), rng)
+    template, source = _choose("question", rng)
+    text, tags = _noise(template.format(color=color, damage=damage), rng)
+    tags = [*tags, *source]
     state, status, cents = _outcome(
         ground_truth(merchant, line, "damaged", 11), line, explicit=False
     )

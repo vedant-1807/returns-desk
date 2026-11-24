@@ -34,6 +34,17 @@ def _fmt(value: Any) -> str:
     return str(value)
 
 
+def _faithfulness_cell(metrics: dict[str, Any]) -> str:
+    result = metrics.get("citation_faithfulness")
+    if not result:
+        return "not judged in this run"
+    return (
+        f"{_fmt(result['rate'])} of {result['answers_judged']} answers "
+        f"(judge agrees with hand labels: kappa {result['judge_cohens_kappa']}, "
+        f"{result['judge_calibration_examples']} examples)"
+    )
+
+
 def write_report(
     out_dir: Path,
     *,
@@ -98,6 +109,7 @@ def write_report(
         f"| Retrieval recall@5 (where a search ran) | {_fmt(metrics['retrieval_recall_at_5'])} |",
         f"| Citation matches expected section | "
         f"{_fmt(metrics['citation_matches_expected_section'])} |",
+        f"| Citation faithfulness (LLM judge) | {_faithfulness_cell(metrics)} |",
         f"| Final-state accuracy | {_fmt(metrics['final_state_accuracy'])} |",
         f"| Injection resistance | {_fmt(metrics['injection_resistance'])} |",
         f"| Auto-resolution coverage | {_fmt(metrics['auto_resolution_coverage'])} |",
@@ -151,13 +163,83 @@ def write_report(
         lines.append(f"- ... and {len(misses) - 25} more in results.json")
     lines += [
         "",
-        "## Not measured yet",
+        "## Notes",
         "",
-        "- Citation faithfulness by an LLM judge calibrated against hand labels.",
-        "- Router quality loss (routed against always-strong). Both arrive with the gateway "
-        "work in milestone 3.",
+        "- Ground truth comes from the rules engine and the seeded stock, never from hand labels.",
+        "- Citation faithfulness needs a judge model (`--judge`); its agreement with hand "
+        "labels is in `evals/reports/judge-calibration`.",
+        "- Router quality loss (routed against always-strong) is in "
+        "`evals/reports/router-comparison`.",
         "",
     ]
+    path = out_dir / "report.md"
+    path.write_text("\n".join(lines))
+    return path
+
+
+def write_comparison(
+    out_dir: Path, *, suite: str, seed: int, label: str, runs: dict[str, dict[str, Any]]
+) -> Path:
+    """Routed against always-strong on identical cases: what routing costs in quality and
+    what it saves in tokens and money."""
+    routed, strong = runs["routed"], runs["always_strong"]
+    stamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
+    loss = round(strong["final_state_accuracy"] - routed["final_state_accuracy"], 4)
+
+    def row(name: str, key: Any) -> str:
+        return f"| {name} | {key(routed)} | {key(strong)} |"
+
+    def tokens(m: dict[str, Any]) -> str:
+        return f"{m['model']['input_tokens']} / {m['model']['output_tokens']}"
+
+    def answers(m: dict[str, Any]) -> str:
+        return ", ".join(f"{k}: {v}" for k, v in m["model"]["answered_by"].items())
+
+    lines = [
+        f"# Router comparison: {suite} ({label})",
+        "",
+        f"{routed['cases']} identical cases, seed {seed}, run twice, generated {stamp}.",
+        "",
+        "- **Routed**: the low-cost model first; the stronger one only when an answer "
+        "settles nothing or conflicts with the shopper's own words.",
+        "- **Always strong**: the stronger model for every call.",
+        "",
+        f"**Router quality loss: {loss:+.1%}** final-state accuracy "
+        "(always-strong minus routed; 0 means routing cost nothing).",
+        "",
+        "| | Routed | Always strong |",
+        "| --- | --- | --- |",
+        row("Final-state accuracy", lambda m: _fmt(m["final_state_accuracy"])),
+        row("Intent accuracy", lambda m: _fmt(m["intent_accuracy"])),
+        row("Item resolution accuracy", lambda m: _fmt(m["item_resolution_accuracy"])),
+        row("Incorrect financial or stock actions", lambda m: m["incorrect_financial_actions"]),
+        row("Injection resistance", lambda m: _fmt(m["injection_resistance"])),
+        row("Answers by model", answers),
+        row("Tokens in / out", tokens),
+        row("Cost at list prices", lambda m: f"${m['cost']['total_usd']}"),
+        row(
+            "Cost per correct automatic resolution",
+            lambda m: m["cost"]["per_correct_automatic_resolution_usd"],
+        ),
+        row("Model latency p50", lambda m: f"{m['model']['latency_ms_p50']} ms"),
+        "",
+        "List prices are what the paid plan charges for these tokens. On a free plan "
+        "nothing is charged.",
+        "",
+        f"The two full reports are in `{out_dir.name}/routed` and `{out_dir.name}/always_strong`.",
+        "",
+    ]
+    out_dir.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "suite": suite,
+        "seed": seed,
+        "label": label,
+        "generated_at": stamp,
+        "router_quality_loss": loss,
+        "routed": {k: v for k, v in routed.items() if k not in ("by_kind", "by_merchant")},
+        "always_strong": {k: v for k, v in strong.items() if k not in ("by_kind", "by_merchant")},
+    }
+    (out_dir / "results.json").write_text(json.dumps(payload, indent=2, default=str))
     path = out_dir / "report.md"
     path.write_text("\n".join(lines))
     return path

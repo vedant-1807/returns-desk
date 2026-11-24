@@ -160,6 +160,33 @@
    "messages": 50,
    "tool_calls": 12,
    "seconds": 189.2
+  },
+  {
+   "task": 16,
+   "trial": 0,
+   "reward": 0.0,
+   "error": null,
+   "messages": 32,
+   "tool_calls": 8,
+   "seconds": 109.2
+  },
+  {
+   "task": 17,
+   "trial": 0,
+   "reward": 0.0,
+   "error": null,
+   "messages": 46,
+   "tool_calls": 11,
+   "seconds": 151.6
+  },
+  {
+   "task": 18,
+   "trial": 0,
+   "reward": 0.0,
+   "error": null,
+   "messages": 34,
+   "tool_calls": 8,
+   "seconds": 119.9
   }
  ]
 }

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID
 
 from returns_desk.auth import mint_token
@@ -77,6 +78,16 @@ def main() -> None:
     )
     eval_cmd.add_argument("--quiet", action="store_true", help="do not print each case")
     eval_cmd.add_argument(
+        "--judge",
+        action="store_true",
+        help="have the calibrated LLM judge check policy answers against their citations",
+    )
+    eval_cmd.add_argument(
+        "--compare-router",
+        action="store_true",
+        help="run the same cases routed and always-strong, and report the difference",
+    )
+    eval_cmd.add_argument(
         "--record",
         action="store_true",
         help="save the run's summary in the app database for the operations view",
@@ -87,6 +98,16 @@ def main() -> None:
         default=0.8,
         help="final-state accuracy the gate requires (0.8 suits the keyword baseline)",
     )
+
+    para_cmd = commands.add_parser(
+        "eval-paraphrase", help="have a model write rewrites of the eval templates"
+    )
+    para_cmd.add_argument("--variants", type=int, default=4, help="rewrites to ask for each")
+
+    judge_cmd = commands.add_parser(
+        "eval-judge", help="measure the LLM judge against the hand-labelled answers"
+    )
+    judge_cmd.add_argument("--out", default="evals/reports/judge-calibration")
 
     args = parser.parse_args()
     settings = get_settings()
@@ -232,29 +253,114 @@ def main() -> None:
 
         print(reconcile_cron_sql(args.api_url, settings.internal_token))
 
+    elif args.command == "eval-paraphrase":
+        from returns_desk.evals import paraphrase
+        from returns_desk.evals.cases import TEMPLATES
+        from returns_desk.models.gateway import build_gateway
+
+        _need_a_model(settings, "write rewrites of the eval templates")
+        gateway = build_gateway(_patient(settings))
+        built = paraphrase.build(
+            gateway, TEMPLATES, variants=args.variants, label=_model_label(settings)
+        )
+        paraphrase.PARAPHRASE_FILE.write_text(json.dumps(built, indent=1) + "\n")
+        print(
+            f"kept {built['accepted_count']} rewrites, dropped {built['dropped_count']} that "
+            f"changed the facts, {built['failed_calls']} calls failed"
+        )
+        print(f"saved: {paraphrase.PARAPHRASE_FILE}")
+
+    elif args.command == "eval-judge":
+        from pathlib import Path
+
+        from returns_desk.evals import judge as judging
+        from returns_desk.models.gateway import build_gateway
+
+        _need_a_model(settings, "calibrate the judge")
+        out = Path(args.out)
+        out.mkdir(parents=True, exist_ok=True)
+        judge = judging.Judge(
+            build_gateway(_patient(settings)),
+            _model_label(settings),
+            Path("artifacts/evals/judge-cache.json"),
+        )
+        result = {**judging.calibrate(judge), "judge_model": _model_label(settings)}
+        (out / "results.json").write_text(json.dumps(result, indent=2) + "\n")
+        (out / "report.md").write_text(_judge_report(result))
+        print(json.dumps(result, indent=2))
+        print(f"report: {out / 'report.md'}")
+
     elif args.command == "eval":
         import logging
         from pathlib import Path
 
         from returns_desk.evals.cases import generate
-        from returns_desk.evals.report import check_gate, write_report
-        from returns_desk.evals.runner import run_cases, score
+        from returns_desk.evals.report import check_gate, write_comparison, write_report
+        from returns_desk.evals.runner import judge_answers, run_cases, score
 
         for noisy in ("httpx2", "httpx", "mcp"):
             logging.getLogger(noisy).setLevel(logging.WARNING)
         count = args.cases or {"smoke": 30, "nightly": 300}[args.suite]
         label = args.label or f"{settings.model_routes} models, {settings.embedder} embeddings"
         cases = generate(count, seed=args.seed)
-        print(f"running {count} cases ({args.suite}, seed {args.seed}) with {label}")
-        results = run_cases(settings, cases, progress=not args.quiet)
-        metrics = score(results)
         out = Path(args.out or f"artifacts/evals/{args.suite}")
-        report = write_report(
-            out, suite=args.suite, seed=args.seed, label=label, metrics=metrics, results=results
-        )
+
+        judge = None
+        calibration = None
+        if args.judge:
+            from returns_desk.evals import judge as judging
+            from returns_desk.models.gateway import build_gateway
+
+            _need_a_model(settings, "judge policy answers")
+            calibration_file = Path("evals/reports/judge-calibration/results.json")
+            if not calibration_file.exists():
+                raise SystemExit(
+                    "The judge has not been calibrated. Run `returns-desk eval-judge` first."
+                )
+            calibration = json.loads(calibration_file.read_text())
+            judge = judging.Judge(
+                build_gateway(_patient(settings)),
+                _model_label(settings),
+                Path("artifacts/evals/judge-cache.json"),
+            )
+
+        def run(run_settings: Any, run_label: str, run_out: Path) -> dict[str, Any]:
+            print(f"running {count} cases ({args.suite}, seed {args.seed}) with {run_label}")
+            results = run_cases(run_settings, cases, progress=not args.quiet)
+            if judge is not None:
+                judge_answers(results, judge)
+            run_metrics = score(results, calibration)
+            path = write_report(
+                run_out,
+                suite=args.suite,
+                seed=args.seed,
+                label=run_label,
+                metrics=run_metrics,
+                results=results,
+            )
+            print(f"report: {path}")
+            return run_metrics
+
+        if args.compare_router:
+            # The same cases twice: once routed, once with the stronger model for
+            # everything. The difference in accuracy is what routing costs in quality.
+            _need_a_model(settings, "compare routers")
+            both = {
+                router: run(
+                    settings.model_copy(update={"model_router": router}),
+                    f"{label}, {router.replace('_', ' ')}",
+                    out / router,
+                )
+                for router in ("routed", "always_strong")
+            }
+            path = write_comparison(out, suite=args.suite, seed=args.seed, label=label, runs=both)
+            print(f"comparison: {path}")
+            metrics = both["routed"]
+        else:
+            metrics = run(settings, label, out)
+
         shown = {k: v for k, v in metrics.items() if k not in ("by_kind", "by_merchant")}
         print(json.dumps(shown, indent=2))
-        print(f"report: {report}")
         if args.record:
             import psycopg
             from psycopg.types.json import Jsonb
@@ -287,6 +393,73 @@ def main() -> None:
 
     else:  # pragma: no cover
         raise SystemExit(f"unknown command {args.command}")
+
+
+def _need_a_model(settings: Any, to_do: str) -> None:
+    if "keyword" in settings.model_routes.split(","):
+        raise SystemExit(
+            f"A real model is needed to {to_do}. Set RD_MODEL_ROUTES to a model route "
+            "(for example groq or ollama)."
+        )
+
+
+def _patient(settings: Any) -> Any:
+    """Settings for a batch job: wait out a rate limit instead of failing over, and give
+    each call room to finish."""
+    return settings.model_copy(
+        update={
+            "model_rate_limit_wait_seconds": max(settings.model_rate_limit_wait_seconds, 60.0),
+            "model_deadline_seconds": max(settings.model_deadline_seconds, 60.0),
+        }
+    )
+
+
+def _model_label(settings: Any) -> str:
+    """Which models stand behind the configured routes, strongest tier named last."""
+    names = []
+    for route in settings.model_routes.split(","):
+        route = route.strip()
+        strong = getattr(settings, f"{route}_model_strong", None)
+        names.append(f"{route}/{strong}" if strong else route)
+    return ", ".join(names)
+
+
+def _judge_report(result: dict[str, Any]) -> str:
+    rows = "\n".join(
+        f"| {d['id']} | {'faithful' if d['label'] else 'not faithful'} | "
+        f"{'faithful' if d['judge'] else 'not faithful'} |"
+        for d in result["disagreements"]
+    )
+    return f"""# Judge calibration: citation faithfulness
+
+The judge is a model that reads a policy answer and the passages it cites, and says
+whether every factual claim in the answer is stated in those passages. Before its
+verdicts are used, it is run over answers that were labelled by hand.
+
+| | |
+| --- | --- |
+| Judge model | {result["judge_model"]} |
+| Prompt version | {result["prompt_version"]} |
+| Hand-labelled answers | {result["examples"]} ({result["label_faithful"]} faithful) |
+| Answers the judge gave a verdict on | {result["judged"]} |
+| Agreement with the labels | {result["agreement"]:.1%} |
+| **Cohen's kappa** | **{result["cohens_kappa"]}** |
+
+Kappa is agreement corrected for chance: 1 is perfect, 0 is no better than guessing.
+
+## Where the judge and the labels disagree ({len(result["disagreements"])})
+
+| Example | Hand label | Judge |
+| --- | --- | --- |
+{rows or "| none | | |"}
+
+## What the labels are
+
+The examples are in `src/returns_desk/evals/data/judge_calibration.json`. They were
+written and labelled by the builder of this project (an AI assistant) and have not been
+reviewed by a person yet. Until someone does, treat the kappa as agreement with those
+labels, not with a human rater.
+"""
 
 
 def _staff_view(merchant: str) -> Principal:

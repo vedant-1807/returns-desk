@@ -1,0 +1,506 @@
+{
+ "about": "Hand-labelled answers for calibrating the citation-faithfulness judge. Each answer is labelled faithful when every factual claim in it is stated in the cited passages. The labels were written by the builder of this project (an AI assistant) while building it. They have not been reviewed by a person yet.",
+ "labelled_on": "2026-11-23",
+ "examples": [
+  {
+   "id": "J01",
+   "question": "How long do I have to return things?",
+   "passages": [
+    {
+     "title": "Return window",
+     "text": "You can return an item within 30 days of delivery. The delivery day is day 0 and day 30 is included."
+    }
+   ],
+   "answer": "You can return an item within 30 days of delivery.",
+   "faithful": true
+  },
+  {
+   "id": "J02",
+   "question": "How long do I have to return things?",
+   "passages": [
+    {
+     "title": "Return window",
+     "text": "You can return an item within 30 days of delivery. The delivery day is day 0 and day 30 is included."
+    }
+   ],
+   "answer": "You have 30 days from delivery. The delivery day counts as day 0, and day 30 still counts.",
+   "faithful": true
+  },
+  {
+   "id": "J03",
+   "question": "Is the last day included?",
+   "passages": [
+    {
+     "title": "Return window",
+     "text": "You can return an item within 30 days of delivery. The delivery day is day 0 and day 30 is included."
+    }
+   ],
+   "answer": "Yes. Day 30 after delivery is included in the return window.",
+   "faithful": true
+  },
+  {
+   "id": "J04",
+   "question": "What is your return window?",
+   "passages": [
+    {
+     "title": "Return window",
+     "text": "You can return an item within 14 days of delivery. The delivery day is day 0 and day 14 is included."
+    }
+   ],
+   "answer": "The return window is 14 days from delivery.",
+   "faithful": true
+  },
+  {
+   "id": "J05",
+   "question": "What happens if an item arrives damaged?",
+   "passages": [
+    {
+     "title": "Damaged on arrival",
+     "text": "If an item arrives damaged, we refund what you paid for that item to your original payment method. You do not need to send it back."
+    }
+   ],
+   "answer": "We refund what you paid for the damaged item to your original payment method, and you do not need to send it back.",
+   "faithful": true
+  },
+  {
+   "id": "J06",
+   "question": "Do I have to send a damaged item back?",
+   "passages": [
+    {
+     "title": "Damaged on arrival",
+     "text": "If an item arrives damaged, we refund what you paid for that item to your original payment method. You do not need to send it back."
+    }
+   ],
+   "answer": "No. For an item that arrives damaged you do not need to send it back.",
+   "faithful": true
+  },
+  {
+   "id": "J07",
+   "question": "Where does the refund for a damaged item go?",
+   "passages": [
+    {
+     "title": "Damaged on arrival",
+     "text": "If an item arrives damaged, we refund what you paid for that item to your original payment method. You do not need to send it back."
+    }
+   ],
+   "answer": "It goes back to your original payment method.",
+   "faithful": true
+  },
+  {
+   "id": "J08",
+   "question": "How long do I have, and what if it is damaged?",
+   "passages": [
+    {
+     "title": "Return window",
+     "text": "You can return an item within 30 days of delivery. The delivery day is day 0 and day 30 is included."
+    },
+    {
+     "title": "Damaged on arrival",
+     "text": "If an item arrives damaged, we refund what you paid for that item to your original payment method. You do not need to send it back."
+    }
+   ],
+   "answer": "You have 30 days from delivery to return an item. If it arrives damaged, we refund what you paid for it and you do not have to return it.",
+   "faithful": true
+  },
+  {
+   "id": "J09",
+   "question": "Can I return something after 45 days?",
+   "passages": [
+    {
+     "title": "Return window",
+     "text": "You can return an item within 30 days of delivery. The delivery day is day 0 and day 30 is included."
+    }
+   ],
+   "answer": "The policy allows returns within 30 days of delivery, so day 45 is outside that window.",
+   "faithful": true
+  },
+  {
+   "id": "J10",
+   "question": "Do you offer store credit?",
+   "passages": [
+    {
+     "title": "Return window",
+     "text": "You can return an item within 30 days of delivery. The delivery day is day 0 and day 30 is included."
+    }
+   ],
+   "answer": "I could not find anything about store credit in the policy.",
+   "faithful": true
+  },
+  {
+   "id": "J11",
+   "question": "Does the delivery day count?",
+   "passages": [
+    {
+     "title": "Return window",
+     "text": "You can return an item within 14 days of delivery. The delivery day is day 0 and day 14 is included."
+    }
+   ],
+   "answer": "The delivery day is day 0, and you have until day 14.",
+   "faithful": true
+  },
+  {
+   "id": "J12",
+   "question": "How many days do I have to return something?",
+   "passages": [
+    {
+     "title": "Return window",
+     "text": "You can return an item within 30 days of delivery. The delivery day is day 0 and day 30 is included."
+    }
+   ],
+   "answer": "Return window: You can return an item within 30 days of delivery. The delivery day is day 0 and day 30 is included.",
+   "faithful": true
+  },
+  {
+   "id": "J13",
+   "question": "Is there a restocking fee?",
+   "passages": [
+    {
+     "title": "Return window",
+     "text": "You can return an item within 30 days of delivery. The delivery day is day 0 and day 30 is included."
+    },
+    {
+     "title": "Damaged on arrival",
+     "text": "If an item arrives damaged, we refund what you paid for that item to your original payment method. You do not need to send it back."
+    }
+   ],
+   "answer": "The policy passages I have do not mention a restocking fee.",
+   "faithful": true
+  },
+  {
+   "id": "J14",
+   "question": "What do I get back for a damaged item?",
+   "passages": [
+    {
+     "title": "Damaged on arrival",
+     "text": "If an item arrives damaged, we refund what you paid for that item to your original payment method. You do not need to send it back."
+    }
+   ],
+   "answer": "You get back what you paid for that item.",
+   "faithful": true
+  },
+  {
+   "id": "J15",
+   "question": "When does the 30 days start?",
+   "passages": [
+    {
+     "title": "Return window",
+     "text": "You can return an item within 30 days of delivery. The delivery day is day 0 and day 30 is included."
+    }
+   ],
+   "answer": "It starts at delivery. The day of delivery is day 0.",
+   "faithful": true
+  },
+  {
+   "id": "J16",
+   "question": "Can I return it on day 30?",
+   "passages": [
+    {
+     "title": "Return window",
+     "text": "You can return an item within 30 days of delivery. The delivery day is day 0 and day 30 is included."
+    }
+   ],
+   "answer": "Yes, day 30 is included.",
+   "faithful": true
+  },
+  {
+   "id": "J17",
+   "question": "Can I still return it on day 14?",
+   "passages": [
+    {
+     "title": "Return window",
+     "text": "You can return an item within 14 days of delivery. The delivery day is day 0 and day 14 is included."
+    }
+   ],
+   "answer": "Yes. Day 14 is the last day and it is included.",
+   "faithful": true
+  },
+  {
+   "id": "J18",
+   "question": "Do I need to ship a damaged item back to be refunded?",
+   "passages": [
+    {
+     "title": "Damaged on arrival",
+     "text": "If an item arrives damaged, we refund what you paid for that item to your original payment method. You do not need to send it back."
+    }
+   ],
+   "answer": "No, you do not need to send it back. The refund goes to your original payment method.",
+   "faithful": true
+  },
+  {
+   "id": "J19",
+   "question": "How long do I have to return things?",
+   "passages": [
+    {
+     "title": "Return window",
+     "text": "You can return an item within 30 days of delivery. The delivery day is day 0 and day 30 is included."
+    },
+    {
+     "title": "Damaged on arrival",
+     "text": "If an item arrives damaged, we refund what you paid for that item to your original payment method. You do not need to send it back."
+    }
+   ],
+   "answer": "You can return an item within 30 days of delivery, counting the delivery day as day 0.",
+   "faithful": true
+  },
+  {
+   "id": "J20",
+   "question": "What about damaged arrivals, and how long do I have otherwise?",
+   "passages": [
+    {
+     "title": "Damaged on arrival",
+     "text": "If an item arrives damaged, we refund what you paid for that item to your original payment method. You do not need to send it back."
+    },
+    {
+     "title": "Return window",
+     "text": "You can return an item within 14 days of delivery. The delivery day is day 0 and day 14 is included."
+    }
+   ],
+   "answer": "A damaged item is refunded to your original payment method without sending it back. Other returns are accepted within 14 days of delivery.",
+   "faithful": true
+  },
+  {
+   "id": "J21",
+   "question": "How long do I have to return things?",
+   "passages": [
+    {
+     "title": "Return window",
+     "text": "You can return an item within 30 days of delivery. The delivery day is day 0 and day 30 is included."
+    }
+   ],
+   "answer": "You can return an item within 60 days of delivery.",
+   "faithful": false
+  },
+  {
+   "id": "J22",
+   "question": "How long do I have to return things?",
+   "passages": [
+    {
+     "title": "Return window",
+     "text": "You can return an item within 30 days of delivery. The delivery day is day 0 and day 30 is included."
+    }
+   ],
+   "answer": "You have 30 days from the date of purchase.",
+   "faithful": false
+  },
+  {
+   "id": "J23",
+   "question": "How long do I have to return things?",
+   "passages": [
+    {
+     "title": "Return window",
+     "text": "You can return an item within 30 days of delivery. The delivery day is day 0 and day 30 is included."
+    }
+   ],
+   "answer": "You can return an item within 30 days of delivery, as long as it is unused and in its original packaging.",
+   "faithful": false
+  },
+  {
+   "id": "J24",
+   "question": "How long do I have to return things?",
+   "passages": [
+    {
+     "title": "Return window",
+     "text": "You can return an item within 30 days of delivery. The delivery day is day 0 and day 30 is included."
+    }
+   ],
+   "answer": "You have 30 days, and the delivery day does not count, so really 31 days.",
+   "faithful": false
+  },
+  {
+   "id": "J25",
+   "question": "What is your return window?",
+   "passages": [
+    {
+     "title": "Return window",
+     "text": "You can return an item within 14 days of delivery. The delivery day is day 0 and day 14 is included."
+    }
+   ],
+   "answer": "You have 30 days from delivery.",
+   "faithful": false
+  },
+  {
+   "id": "J26",
+   "question": "What happens if an item arrives damaged?",
+   "passages": [
+    {
+     "title": "Damaged on arrival",
+     "text": "If an item arrives damaged, we refund what you paid for that item to your original payment method. You do not need to send it back."
+    }
+   ],
+   "answer": "We refund what you paid, and the money reaches you within 3 business days.",
+   "faithful": false
+  },
+  {
+   "id": "J27",
+   "question": "What happens if an item arrives damaged?",
+   "passages": [
+    {
+     "title": "Damaged on arrival",
+     "text": "If an item arrives damaged, we refund what you paid for that item to your original payment method. You do not need to send it back."
+    }
+   ],
+   "answer": "Send the damaged item back with the prepaid label and we will refund you.",
+   "faithful": false
+  },
+  {
+   "id": "J28",
+   "question": "What happens if an item arrives damaged?",
+   "passages": [
+    {
+     "title": "Damaged on arrival",
+     "text": "If an item arrives damaged, we refund what you paid for that item to your original payment method. You do not need to send it back."
+    }
+   ],
+   "answer": "You will get a full refund plus a 10% credit for the trouble.",
+   "faithful": false
+  },
+  {
+   "id": "J29",
+   "question": "What happens if an item arrives damaged?",
+   "passages": [
+    {
+     "title": "Damaged on arrival",
+     "text": "If an item arrives damaged, we refund what you paid for that item to your original payment method. You do not need to send it back."
+    }
+   ],
+   "answer": "Damaged items are refunded as store credit.",
+   "faithful": false
+  },
+  {
+   "id": "J30",
+   "question": "How long do I have to return things?",
+   "passages": [
+    {
+     "title": "Return window",
+     "text": "You can return an item within 30 days of delivery. The delivery day is day 0 and day 30 is included."
+    }
+   ],
+   "answer": "You have 30 days from delivery. Returns are free and we cover the shipping cost.",
+   "faithful": false
+  },
+  {
+   "id": "J31",
+   "question": "How long do I have to return things?",
+   "passages": [
+    {
+     "title": "Return window",
+     "text": "You can return an item within 30 days of delivery. The delivery day is day 0 and day 30 is included."
+    }
+   ],
+   "answer": "You can return within 30 days, and exchanges are allowed for up to 60 days.",
+   "faithful": false
+  },
+  {
+   "id": "J32",
+   "question": "How long do I have to return things?",
+   "passages": [
+    {
+     "title": "Return window",
+     "text": "You can return an item within 30 days of delivery. The delivery day is day 0 and day 30 is included."
+    },
+    {
+     "title": "Damaged on arrival",
+     "text": "If an item arrives damaged, we refund what you paid for that item to your original payment method. You do not need to send it back."
+    }
+   ],
+   "answer": "Yes, I have approved your refund of $180. It will arrive today.",
+   "faithful": false
+  },
+  {
+   "id": "J33",
+   "question": "Is the last day included?",
+   "passages": [
+    {
+     "title": "Return window",
+     "text": "You can return an item within 30 days of delivery. The delivery day is day 0 and day 30 is included."
+    }
+   ],
+   "answer": "Day 30 is not included, so return it by day 29.",
+   "faithful": false
+  },
+  {
+   "id": "J34",
+   "question": "What happens if an item arrives damaged?",
+   "passages": [
+    {
+     "title": "Damaged on arrival",
+     "text": "If an item arrives damaged, we refund what you paid for that item to your original payment method. You do not need to send it back."
+    }
+   ],
+   "answer": "If an item arrives damaged we replace it with a new one.",
+   "faithful": false
+  },
+  {
+   "id": "J35",
+   "question": "What happens if an item arrives damaged?",
+   "passages": [
+    {
+     "title": "Damaged on arrival",
+     "text": "If an item arrives damaged, we refund what you paid for that item to your original payment method. You do not need to send it back."
+    }
+   ],
+   "answer": "We refund you, but you need to send a photo of the damage within 48 hours.",
+   "faithful": false
+  },
+  {
+   "id": "J36",
+   "question": "What is your return window?",
+   "passages": [
+    {
+     "title": "Return window",
+     "text": "You can return an item within 14 days of delivery. The delivery day is day 0 and day 14 is included."
+    }
+   ],
+   "answer": "The return window is 14 business days.",
+   "faithful": false
+  },
+  {
+   "id": "J37",
+   "question": "Is there a restocking fee?",
+   "passages": [
+    {
+     "title": "Return window",
+     "text": "You can return an item within 30 days of delivery. The delivery day is day 0 and day 30 is included."
+    }
+   ],
+   "answer": "There is a 15% restocking fee on all returns.",
+   "faithful": false
+  },
+  {
+   "id": "J38",
+   "question": "Do you offer store credit?",
+   "passages": [
+    {
+     "title": "Return window",
+     "text": "You can return an item within 30 days of delivery. The delivery day is day 0 and day 30 is included."
+    }
+   ],
+   "answer": "Yes, you can choose store credit instead of a refund.",
+   "faithful": false
+  },
+  {
+   "id": "J39",
+   "question": "What do I get back for a damaged item?",
+   "passages": [
+    {
+     "title": "Damaged on arrival",
+     "text": "If an item arrives damaged, we refund what you paid for that item to your original payment method. You do not need to send it back."
+    }
+   ],
+   "answer": "We refund what you paid, minus the original shipping cost.",
+   "faithful": false
+  },
+  {
+   "id": "J40",
+   "question": "How long do I have to return things?",
+   "passages": [
+    {
+     "title": "Return window",
+     "text": "You can return an item within 30 days of delivery. The delivery day is day 0 and day 30 is included."
+    }
+   ],
+   "answer": "You can return items within 30 days of delivery, except sale items, which are final.",
+   "faithful": false
+  }
+ ]
+}
