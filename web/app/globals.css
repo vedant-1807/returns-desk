@@ -382,3 +382,90 @@ textarea {
   color: var(--accent);
   border-color: var(--accent);
 }
+
+/* --- sign-in form, staff flags, internal notes and the trace view ------------------- */
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.stack label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.9rem;
+}
+
+.stack input {
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--line, #d0d4da);
+  border-radius: 6px;
+  font: inherit;
+}
+
+.flag {
+  display: inline-block;
+  margin-left: 0.5rem;
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid #c98a00;
+  color: #8a5a00;
+  font-size: 0.72rem;
+}
+
+.bubble.internal {
+  background: #fff7e0;
+  border: 1px dashed #c98a00;
+  color: #3b2f00;
+}
+
+.pill.status-exchanged {
+  background: #dff3e4;
+  color: #14602b;
+}
+
+.trace {
+  margin-top: 0.75rem;
+  border-top: 1px solid var(--line, #d0d4da);
+  padding-top: 0.5rem;
+}
+
+.spans {
+  list-style: none;
+  margin: 0.25rem 0;
+  padding: 0;
+  font-size: 0.82rem;
+}
+
+.span {
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+  padding: 0.15rem 0;
+}
+
+.span.child {
+  padding-left: 1.25rem;
+}
+
+.span.warn .span-name {
+  color: #a13a00;
+}
+
+.span-kind {
+  flex: 0 0 5.5rem;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  color: #6b7280;
+}
+
+.span-name {
+  flex: 1;
+}
+
+a.link {
+  color: inherit;
+}

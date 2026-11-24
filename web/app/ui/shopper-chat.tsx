@@ -28,17 +28,16 @@ export default function ShopperChat() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
-  const token = session?.token;
 
   const refreshLists = useCallback(async () => {
-    if (!token) return;
+    if (!session) return;
     const [orderData, caseData] = await Promise.all([
-      api<{ orders: Order[] }>("/orders", { token }),
-      api<{ cases: CaseSummary[] }>("/cases", { token }),
+      api<{ orders: Order[] }>("/orders", { session }),
+      api<{ cases: CaseSummary[] }>("/cases", { session }),
     ]);
     setOrders(orderData.orders);
     setCases(caseData.cases);
-  }, [token]);
+  }, [session]);
 
   // Load the lists once the session is known. State is only set from this callback.
   useEffect(() => {
@@ -54,10 +53,10 @@ export default function ShopperChat() {
 
   // Poll while the case is with a supervisor or the payment provider.
   useEffect(() => {
-    if (!token || !current || !POLL_STATES.has(current.state)) return;
+    if (!session || !current || !POLL_STATES.has(current.state)) return;
     const timer = window.setInterval(async () => {
       try {
-        const data = await api<{ case: CaseView }>(`/cases/${current.id}`, { token });
+        const data = await api<{ case: CaseView }>(`/cases/${current.id}`, { session });
         setCurrent(data.case);
         if (!POLL_STATES.has(data.case.state)) refreshLists();
       } catch {
@@ -65,29 +64,29 @@ export default function ShopperChat() {
       }
     }, 3000);
     return () => window.clearInterval(timer);
-  }, [token, current, refreshLists]);
+  }, [session, current, refreshLists]);
 
   async function openCase(id: string) {
-    if (!token) return;
+    if (!session) return;
     setError(null);
-    const data = await api<{ case: CaseView }>(`/cases/${id}`, { token });
+    const data = await api<{ case: CaseView }>(`/cases/${id}`, { session });
     setCurrent(data.case);
   }
 
   async function send(text: string) {
-    if (!token || !text.trim() || sending) return;
+    if (!session || !text.trim() || sending) return;
     setSending(true);
     setError(null);
     try {
       const data = current
         ? await api<{ case: CaseView }>(`/cases/${current.id}/messages`, {
             method: "POST",
-            token,
+            session,
             body: { client_request_id: requestId(), text },
           })
         : await api<{ case: CaseView }>("/cases", {
             method: "POST",
-            token,
+            session,
             body: {
               client_request_id: requestId(),
               message: text,
@@ -177,7 +176,8 @@ export default function ShopperChat() {
               <p className="muted">
                 Tell us what happened in your own words
                 {chosenOrder ? ` about order ${chosenOrder.order_number}` : ""}. For example:
-                &ldquo;The blue jacket arrived damaged. Please refund just that one.&rdquo;
+                &ldquo;The blue jacket arrived damaged. Please refund just that one.&rdquo; You
+                can also ask to exchange an item for another size or colour.
               </p>
             </div>
           )}
@@ -261,6 +261,20 @@ function CaseSummaryCard({ view }: { view: CaseView }) {
           <>
             <dt>Amount</dt>
             <dd>{money(view.amount_cents)}</dd>
+          </>
+        )}
+        {view.exchange?.replacement_variant && (
+          <>
+            <dt>Exchange for</dt>
+            <dd>{view.exchange.replacement_variant}</dd>
+          </>
+        )}
+        {view.exchange?.fulfillment && (
+          <>
+            <dt>Exchange reference</dt>
+            <dd>
+              <code>{view.exchange.fulfillment.reference}</code>
+            </dd>
           </>
         )}
         {view.receipt && (

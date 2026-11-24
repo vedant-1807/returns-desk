@@ -60,6 +60,29 @@ def build_spans(
     return spans
 
 
+def in_reading_order(spans: list[Span]) -> list[Span]:
+    """Top-level spans by start time, each followed by its own children by start time.
+    Where times are equal, the order the audit rows were written in decides."""
+    written = {id(span): index for index, span in enumerate(spans)}
+
+    def by_time(span: Span) -> tuple[Any, int]:
+        return (span.start, written[id(span)])
+
+    known = {span.span_id for span in spans}
+    children: dict[str, list[Span]] = {}
+    roots: list[Span] = []
+    for span in spans:
+        if span.parent_id and span.parent_id in known:
+            children.setdefault(span.parent_id, []).append(span)
+        else:
+            roots.append(span)
+    ordered: list[Span] = []
+    for root in sorted(roots, key=by_time):
+        ordered.append(root)
+        ordered.extend(sorted(children.get(root.span_id, []), key=by_time))
+    return ordered
+
+
 def case_trace(conn: Conn, principal: Principal, case_id: UUID) -> dict[str, Any] | None:
     """The trace of one case for a staff member, or None if they cannot see the case."""
     if not principal.is_staff:
@@ -86,10 +109,7 @@ def case_trace(conn: Conn, principal: Principal, case_id: UUID) -> dict[str, Any
         for e in events
         if e["kind"] == "agent_turn" and e["request_id"]
     }
-    spans = build_spans(events, model_attempts, action_attempts, turn_requests)
-    # Stable order: by start time, and by audit order where times are equal.
-    order = {id(span): index for index, span in enumerate(spans)}
-    spans.sort(key=lambda span: (span.start, order[id(span)]))
+    spans = in_reading_order(build_spans(events, model_attempts, action_attempts, turn_requests))
 
     request_ids = list(
         dict.fromkeys(
