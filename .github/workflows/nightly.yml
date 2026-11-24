@@ -34,7 +34,9 @@ jobs:
       - name: Acceptance tests A01 to A16
         run: uv run pytest -m acceptance
       - name: 300 synthetic cases, keyword stand-in
-        run: uv run returns-desk eval --suite nightly --quiet --gate --out artifacts/evals/nightly
+        run: >-
+          uv run returns-desk eval --suite nightly --quiet --gate --min-accuracy 0.6
+          --out artifacts/evals/nightly
         env:
           RD_MODEL_ROUTES: keyword
           RD_EMBEDDER: hash

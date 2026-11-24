@@ -130,23 +130,35 @@ uv run returns-desk eval --suite smoke        # 30 cases
 uv run returns-desk eval --suite nightly      # 300 cases
 ```
 
-Cases are synthetic conversations with typos, vague references, mixed intents and
-injection attempts. Ground truth comes from the rules engine, not from hand labels. Each
-run writes `report.md` and `results.json`; published runs are in `evals/reports/`.
+Cases are synthetic conversations: refunds, exchanges, questions, vague references, typos,
+mixed intents and injection attempts. Some phrasings are hand-written; others were written
+by a model and kept only when rule checks showed they preserve the facts
+(`src/returns_desk/evals/paraphrase.py`). Ground truth comes from the rules engine and the
+seeded stock, never from hand labels. Each run writes `report.md` and `results.json`.
 
-The release gate requires zero incorrect financial actions, full injection resistance and
-no run errors. CI runs the smoke suite with the keyword stand-in on every push.
+The release gate requires zero incorrect financial or stock actions, full injection
+resistance and no run errors. CI runs the smoke suite with the keyword stand-in on every
+push. One eval run at a time: each case reseeds the eval database.
 
-On a free plan a run waits when the provider answers "rate limited" and says for how
-long, then asks again, so the per-minute limit slows a run down instead of failing it.
-The report counts those waits and keeps them out of the turn times. The app itself does
-not wait: a live chat fails over to the next route at once.
+Published runs, in `evals/reports/`:
 
-The 30-case run on Groq used about 38,000 tokens, so the 300-case suite would need about
-380,000 in a day, and Groq's free plan lists 200,000 a day per model. Its published run is
-therefore the 30-case one.
+| Run | Suite | Cases | Final result correct | Wrong refunds or stock moves |
+| --- | --- | --- | --- | --- |
+| `keyword-baseline` (no model) | current | 300 | 78.0% | 0 |
+| `groq-free-plan` (gpt-oss on Groq) | earlier, before exchanges and model-written phrasings | 30 | 100% | 0 |
+| `llama3.1-8b-local` | earlier, before exchanges and model-written phrasings | 300 | 100% | 0 |
 
-Not measured yet: citation faithfulness by a calibrated LLM judge, and router quality loss.
+Also there:
+
+- `judge-calibration`: the LLM judge for citation faithfulness agreed with all 40
+  hand-labelled answers (Cohen's kappa 1.0, gpt-oss-120b on Groq). The labels were written
+  by the builder of this project and have not been reviewed by a person yet.
+- `tau-bench-retail`: a pinned subset of the τ-bench retail benchmark on a local model
+  (see `evals/taubench/README.md`).
+
+Not done yet: the two real-model runs have not been repeated on the current suite, and
+the routed-against-always-strong comparison (`eval --compare-router`) has not been run to
+completion.
 
 ## Layout
 

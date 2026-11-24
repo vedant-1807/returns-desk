@@ -29,6 +29,7 @@ from returns_desk.processor.sandbox import SandboxProcessor
 from returns_desk.seeds import Ids, seed
 
 EVAL_DATABASE = "returns_desk_eval"
+_RUN_LOCK = 0x52444556  # "RDEV": one eval run at a time per eval database
 SEED_NOW = datetime(2026, 11, 20, 18, 0, tzinfo=UTC)
 
 # An eval is a batch job. When an upstream says "slow down" and for how long, the run
@@ -84,6 +85,15 @@ def run_cases(
 ) -> list[CaseResult]:
     settings = eval_settings(settings)
     clock = FrozenClock(SEED_NOW)
+    # Every case reseeds the eval database, so two runs at once would wreck each other.
+    # One run holds this lock for as long as it lasts; a second one stops at once.
+    guard = psycopg.connect(settings.admin_dsn, autocommit=True)
+    if not guard.execute("select pg_try_advisory_lock(%s)", (_RUN_LOCK,)).fetchone()[0]:
+        guard.close()
+        raise SystemExit(
+            "Another eval run is using the eval database. Wait for it to finish; two runs "
+            "at once would overwrite each other's data."
+        )
     container = build_container(settings, clock=clock)
     results: list[CaseResult] = []
     try:
@@ -109,6 +119,7 @@ def run_cases(
                     )
     finally:
         container.close()
+        guard.close()
     return results
 
 

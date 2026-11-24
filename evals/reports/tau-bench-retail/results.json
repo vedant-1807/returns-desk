@@ -392,6 +392,24 @@
    "messages": 30,
    "tool_calls": 7,
    "seconds": 124.0
+  },
+  {
+   "task": 2,
+   "trial": 2,
+   "reward": 0.0,
+   "error": null,
+   "messages": 42,
+   "tool_calls": 10,
+   "seconds": 184.6
+  },
+  {
+   "task": 3,
+   "trial": 2,
+   "reward": 0.0,
+   "error": null,
+   "messages": 42,
+   "tool_calls": 10,
+   "seconds": 178.1
   }
  ]
 }
