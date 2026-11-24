@@ -298,10 +298,18 @@ def score(results: list[CaseResult]) -> dict[str, Any]:
         cost_per_correct = round(cost / len(correct_auto), 6)
 
     by_kind: dict[str, dict[str, int]] = {}
+    by_merchant: dict[str, dict[str, int]] = {}
+    incorrect_ids = {id(r) for r in incorrect_financial}
     for r in results:
         bucket = by_kind.setdefault(r.case.kind, {"cases": 0, "correct": 0})
         bucket["cases"] += 1
         bucket["correct"] += int(r.correct)
+        merchant = by_merchant.setdefault(
+            r.case.merchant, {"cases": 0, "correct": 0, "incorrect_financial_actions": 0}
+        )
+        merchant["cases"] += 1
+        merchant["correct"] += int(r.correct)
+        merchant["incorrect_financial_actions"] += int(id(r) in incorrect_ids)
 
     return {
         "cases": total,
@@ -358,4 +366,5 @@ def score(results: list[CaseResult]) -> dict[str, Any]:
             "per_correct_automatic_resolution_usd": cost_per_correct,
         },
         "by_kind": by_kind,
+        "by_merchant": by_merchant,
     }

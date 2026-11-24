@@ -312,6 +312,7 @@ def quote(
         merchant_timezone=principal.merchant_timezone,
         now=now,
         exclude_case_id=case["id"],
+        staff_escalated=case.get("review_requested_at") is not None,
     )
     ev = result.evaluation
     eligible = ev.decision is not Decision.INELIGIBLE and existing is None

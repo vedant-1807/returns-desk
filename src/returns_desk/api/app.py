@@ -26,7 +26,7 @@ from returns_desk.errors import (
     NotFound,
 )
 from returns_desk.retrieval.index import index_policy_versions
-from returns_desk.services import cases, chat, policies, reviews, views
+from returns_desk.services import cases, chat, ops, policies, reviews, views
 from returns_desk.services.common import add_message
 from returns_desk.services.views import CUSTOMER_STATUS
 from returns_desk.tools.server import build_tool_server, http_app
@@ -407,6 +407,20 @@ def create_app(container: Container | None = None) -> FastAPI:
                 log.exception("could not resume the workflow for case %s", case_id)
         return {"decision": result.body, "case": render_case(deps, principal, case_id)}
 
+    @app.post("/cases/{case_id}/review-request")
+    def request_review(
+        deps: Deps,
+        principal: Caller,
+        case_id: UUID,
+        body: reviews.ReviewRequestInput,
+        request: Request,
+    ) -> dict[str, Any]:
+        """A staff member sends a case to a supervisor, with a note. Safe to repeat."""
+        marked = reviews.request_review(
+            deps.db, deps.clock, principal, case_id, body, request.state.request_id
+        )
+        return {"case": render_case(deps, principal, case_id), "already_requested": not marked}
+
     # --- policies ---------------------------------------------------------------------
 
     @app.get("/policies")
@@ -435,6 +449,20 @@ def create_app(container: Container | None = None) -> FastAPI:
         with deps.db.service_tx() as conn:
             index_policy_versions(conn, deps.embedder, [version["id"]])
         return {"version": version}
+
+    # --- operations -------------------------------------------------------------------
+
+    @app.get("/ops/summary")
+    def ops_summary(deps: Deps, principal: Caller, window_days: int = 30) -> dict[str, Any]:
+        """How this merchant's desk is doing: finished cases, review backlog, uncertain
+        payments, latency and model cost, plus the latest eval run. Staff only."""
+        window_days = max(1, min(window_days, 365))
+        with deps.db.tenant_tx(principal) as conn:
+            return {
+                "summary": ops.summary(
+                    conn, principal, now=deps.clock.now(), window_days=window_days
+                )
+            }
 
     # --- internal ---------------------------------------------------------------------
 

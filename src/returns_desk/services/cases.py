@@ -313,6 +313,7 @@ def _propose_and_route(
         merchant_timezone=principal.merchant_timezone,
         now=now,
         exclude_case_id=case["id"],
+        staff_escalated=case.get("review_requested_at") is not None,
     )
     ev = quote.evaluation
     actor = {"actor_kind": "system", "request_id": request_id, "now": now}

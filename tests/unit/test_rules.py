@@ -213,3 +213,29 @@ def test_unconfirmed_delivery_goes_to_review():
     result = evaluate(line(4000), request(delivered_at=None), terms(), operational())
     assert result.decision is Decision.REVIEW
     assert "delivery_unconfirmed" in result.review_reasons
+
+
+def test_a_staff_request_for_review_overrides_an_automatic_refund():
+    facts = request()
+    escalated = RequestFacts(**{**facts.__dict__, "staff_escalated": True})
+
+    assert evaluate(line(), facts, terms(), operational()).decision is Decision.AUTO
+    result = evaluate(line(), escalated, terms(), operational())
+
+    assert result.decision is Decision.REVIEW
+    assert result.review_reasons == ("staff_escalation",)
+    assert result.amount_cents == 18000
+
+
+def test_a_staff_request_for_review_cannot_rescue_an_ineligible_request():
+    late = RequestFacts(
+        **{
+            **request(requested_at=datetime(2026, 12, 25, 18, 0, tzinfo=UTC)).__dict__,
+            "staff_escalated": True,
+        }
+    )
+
+    result = evaluate(line(), late, terms(), operational())
+
+    assert result.decision is Decision.INELIGIBLE
+    assert result.hard_reasons == ("outside_return_window",)

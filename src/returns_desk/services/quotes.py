@@ -94,6 +94,7 @@ def quote_refund(
     merchant_timezone: str,
     now: datetime,
     exclude_case_id: UUID | None,
+    staff_escalated: bool = False,
 ) -> Quote:
     """Gather the evidence for one refund request and run the rules.
 
@@ -126,6 +127,7 @@ def quote_refund(
             delivered_at=line["delivered_at"],
             merchant_timezone=merchant_timezone,
             prior_completed_returns=prior,
+            staff_escalated=staff_escalated,
         ),
         terms,
         operational,

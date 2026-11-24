@@ -123,9 +123,10 @@ def case_view(conn: Conn, principal: Principal, case_id: UUID) -> dict[str, Any]
         "action": _action_view(action),
         "receipt": _receipt_view(action, ledger),
         "outcome": _outcome_view(case, principal),
+        # Row-level security leaves internal notes out for a shopper.
         "messages": conn.execute(
             """
-            select author_kind, body, created_at from case_messages
+            select author_kind, audience, body, created_at from case_messages
             where case_id = %s order by seq
             """,
             (case_id,),
@@ -138,6 +139,11 @@ def case_view(conn: Conn, principal: Principal, case_id: UUID) -> dict[str, Any]
     if principal.is_staff:
         view["shopper_id"] = case["shopper_id"]
         view["reason_code"] = case["reason_code"]
+        view["review_requested"] = (
+            {"at": case["review_requested_at"], "by": case["review_requested_by"]}
+            if case["review_requested_at"]
+            else None
+        )
         view["proposal"] = (
             {
                 "id": proposal["id"],
@@ -204,7 +210,14 @@ def list_cases(conn: Conn, principal: Principal, limit: int = 50) -> list[dict[s
     return conn.execute(
         """
         select c.id, c.state, c.requested_action, c.quantity, c.request_received_at,
-               c.updated_at, ol.description, ol.variant, o.order_number
+               c.updated_at, ol.description, ol.variant, o.order_number,
+               -- Flags for the staff queue. A shopper's own list carries them too, but
+               -- they say nothing a shopper is not told in the conversation.
+               (c.review_requested_at is not null) as review_requested,
+               exists (
+                 select 1 from case_events e
+                 where e.case_id = c.id and e.kind = 'needs_staff'
+               ) as needs_staff
         from cases c
         left join order_lines ol on ol.id = c.order_line_id
         left join orders o on o.id = c.order_id

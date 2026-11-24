@@ -11,7 +11,7 @@ from returns_desk.db import Conn, Database, Principal
 from returns_desk.domain.rules import Decision
 from returns_desk.errors import Conflict, Forbidden, NotFound
 from returns_desk.services import policies
-from returns_desk.services.common import add_message, move_case
+from returns_desk.services.common import add_message, move_case, record_event
 from returns_desk.services.execution import authorize_and_queue
 from returns_desk.services.quotes import load_line_for_update, quote_refund, write_proposal
 
@@ -21,6 +21,12 @@ class DecisionInput(BaseModel):
 
     decision: Literal["approve", "decline"]
     note: str = Field(default="", max_length=2000)
+
+
+class ReviewRequestInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    note: str = Field(min_length=1, max_length=2000)
 
 
 @dataclass(frozen=True)
@@ -53,6 +59,66 @@ def list_reviews(db: Database, principal: Principal) -> list[dict[str, Any]]:
             """
         ).fetchall()
         return [_review_view(conn, row) for row in rows]
+
+
+def request_review(
+    db: Database,
+    clock: Clock,
+    principal: Principal,
+    case_id: UUID,
+    data: ReviewRequestInput,
+    request_id: str | None,
+) -> bool:
+    """A staff member sends a case to a supervisor.
+
+    It changes no balance and makes no decision. It marks the case, and from then on the
+    rules treat it as a review case whatever the amount: when the shopper confirms, the
+    proposal goes to a supervisor instead of being paid automatically. The note is kept as
+    an internal message the shopper never sees. Returns False when the case was already
+    marked, so a second click changes nothing.
+    """
+    if not principal.is_staff:
+        raise Forbidden("Only staff can send a case to review")
+    now = clock.now()
+    with db.tenant_tx(principal) as conn:
+        case = conn.execute("select * from cases where id = %s for update", (case_id,)).fetchone()
+        if case is None:
+            raise NotFound()
+        if case["review_requested_at"] is not None:
+            return False
+        if case["state"] not in ("open", "awaiting_customer"):
+            raise Conflict(
+                "This case can no longer be sent to review", details={"state": case["state"]}
+            )
+        conn.execute(
+            """
+            update cases
+            set review_requested_at = %s, review_requested_by = %s, updated_at = %s
+            where id = %s
+            """,
+            (now, principal.user_id, now, case_id),
+        )
+        add_message(
+            conn,
+            merchant_id=case["merchant_id"],
+            case_id=case_id,
+            author_kind=principal.role,
+            author_user_id=principal.user_id,
+            audience="internal",
+            body=data.note,
+            now=now,
+        )
+        record_event(
+            conn,
+            merchant_id=case["merchant_id"],
+            case_id=case_id,
+            kind="review_requested",
+            actor_kind=principal.role,
+            actor_user_id=principal.user_id,
+            request_id=request_id,
+            now=now,
+        )
+    return True
 
 
 def decide(
@@ -138,6 +204,7 @@ def decide(
             merchant_timezone=principal.merchant_timezone,
             now=now,
             exclude_case_id=case["id"],
+            staff_escalated=case.get("review_requested_at") is not None,
         )
         ev = quote.evaluation
         seen = conn.execute(

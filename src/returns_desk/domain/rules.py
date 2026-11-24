@@ -75,6 +75,8 @@ class RequestFacts:
     # Distinct completed returns by this shopper at this merchant in the look-back window,
     # not counting the current case.
     prior_completed_returns: int
+    # A staff member asked for a supervisor to look at this case.
+    staff_escalated: bool = False
 
 
 class Decision(StrEnum):
@@ -94,6 +96,7 @@ class Reason(StrEnum):
     REASON_REQUIRES_REVIEW = "reason_requires_review"
     DELIVERY_UNCONFIRMED = "delivery_unconfirmed"
     POLICY_NEEDS_VERIFICATION = "policy_needs_verification"
+    STAFF_ESCALATION = "staff_escalation"
 
 
 @dataclass(frozen=True)
@@ -214,6 +217,9 @@ def evaluate(
             review.append(Reason.ABOVE_AUTO_LIMIT)
         if request.prior_completed_returns >= rules.return_history_threshold:
             review.append(Reason.RETURN_HISTORY_THRESHOLD)
+
+    if request.staff_escalated:
+        review.append(Reason.STAFF_ESCALATION)
 
     if hard:
         decision = Decision.INELIGIBLE
