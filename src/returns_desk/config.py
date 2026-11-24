@@ -22,8 +22,13 @@ class Settings(BaseSettings):
     # until RD_JWT_SECRET and RD_INTERNAL_TOKEN are set to real values.
     environment: str = "local"
 
+    # Access tokens. Locally the API signs its own (HS256 with jwt_secret). Deployed,
+    # Supabase Auth issues them: set jwt_secret to the project's JWT secret for HS256
+    # tokens, or jwt_jwks_url to https://<project>.supabase.co/auth/v1/.well-known/jwks.json
+    # when the project signs with asymmetric keys.
     jwt_secret: str = "local-dev-secret-change-me-0123456789abcdef"
     jwt_audience: str = "authenticated"
+    jwt_jwks_url: str = ""
     internal_token: str = "local-internal-token-change-me"
     # Shared secret that signs payment provider events (POST /webhooks/payments). With
     # Stripe this is the endpoint's signing secret (whsec_...).

@@ -1,0 +1,53 @@
+# Render Blueprint: one free web service that runs the whole API.
+# In Render: New > Blueprint, pick this repository, then fill in the values marked
+# "sync: false" (they are secrets and are never stored in this file).
+services:
+  - type: web
+    name: returns-desk-api
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: RD_ENVIRONMENT
+        value: production
+      # Supabase Postgres, one connection string per database role. Use the session
+      # pooler host (port 5432), because Render's free plan has no IPv6.
+      - key: RD_ADMIN_DSN
+        sync: false
+      - key: RD_APP_DSN
+        sync: false
+      - key: RD_SERVICE_DSN
+        sync: false
+      - key: RD_PROCESSOR_DSN
+        sync: false
+      - key: RD_WORKFLOW_DSN
+        sync: false
+      # Supabase Auth: the project's JWT secret, or its JWKS address for asymmetric keys.
+      - key: RD_JWT_SECRET
+        sync: false
+      - key: RD_JWT_JWKS_URL
+        sync: false
+      - key: RD_INTERNAL_TOKEN
+        generateValue: true
+      - key: RD_PAYMENT_WEBHOOK_SECRET
+        generateValue: true
+      # The Vercel address of the two screens.
+      - key: RD_CORS_ORIGINS
+        sync: false
+      # Free models: Groq's free plan, with a second Groq model as the fallback route.
+      - key: RD_MODEL_ROUTES
+        value: groq,groq_alt
+      - key: RD_GROQ_API_KEY
+        sync: false
+      # Policy search with no embedding service to pay for or keep running.
+      - key: RD_EMBEDDER
+        value: hash
+      - key: RD_POOL_MAX_SIZE
+        value: "2"
+      # Optional: Langfuse Cloud (Hobby plan) for traces.
+      - key: RD_LANGFUSE_PUBLIC_KEY
+        sync: false
+      - key: RD_LANGFUSE_SECRET_KEY
+        sync: false

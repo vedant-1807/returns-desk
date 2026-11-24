@@ -51,8 +51,14 @@ def build_tool_server(
         if principal is not None:
             return principal
         request = ctx.request_context.request
-        authorization = request.headers.get("authorization") if request is not None else None
-        return authenticate(container.settings, container.db, authorization)
+        headers = request.headers if request is not None else {}
+        return authenticate(
+            container.settings,
+            container.db,
+            headers.get("authorization"),
+            merchant=headers.get("x-rd-merchant"),
+            surface=headers.get("x-rd-surface"),
+        )
 
     def run(ctx: Context, fn: Callable[..., T], **kwargs: Any) -> T:
         try:

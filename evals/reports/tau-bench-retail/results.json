@@ -115,6 +115,33 @@
    "messages": 32,
    "tool_calls": 8,
    "seconds": 121.2
+  },
+  {
+   "task": 11,
+   "trial": 0,
+   "reward": 0.0,
+   "error": null,
+   "messages": 34,
+   "tool_calls": 8,
+   "seconds": 107.4
+  },
+  {
+   "task": 12,
+   "trial": 0,
+   "reward": 1.0,
+   "error": null,
+   "messages": 10,
+   "tool_calls": 2,
+   "seconds": 32.8
+  },
+  {
+   "task": 13,
+   "trial": 0,
+   "reward": 0.0,
+   "error": null,
+   "messages": 42,
+   "tool_calls": 10,
+   "seconds": 159.1
   }
  ]
 }

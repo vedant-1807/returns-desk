@@ -1,0 +1,57 @@
+name: nightly
+
+# The full eval suite and the acceptance tests, once a day. No model and no secrets are
+# needed: the keyword stand-in plays the model, which makes this a check on everything
+# around the model. If GROQ_API_KEY is set as a repository secret, a 30-case run against
+# the real free model is added.
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+jobs:
+  nightly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      db:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: returns_desk
+        ports:
+          - 54329:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d returns_desk"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync
+      - name: Acceptance tests A01 to A16
+        run: uv run pytest -m acceptance
+      - name: 300 synthetic cases, keyword stand-in
+        run: uv run returns-desk eval --suite nightly --quiet --gate --out artifacts/evals/nightly
+        env:
+          RD_MODEL_ROUTES: keyword
+          RD_EMBEDDER: hash
+      - name: 30 synthetic cases, Groq free plan
+        if: ${{ env.RD_GROQ_API_KEY != '' }}
+        run: >-
+          uv run returns-desk eval --suite smoke --quiet --gate --min-accuracy 0.9
+          --out artifacts/evals/groq-smoke
+        env:
+          RD_MODEL_ROUTES: groq,groq_alt
+          RD_EMBEDDER: hash
+          RD_GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nightly-evidence-and-eval-reports
+          path: artifacts/
+          if-no-files-found: ignore
+    env:
+      RD_GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}

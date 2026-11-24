@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from returns_desk.auth import authenticate, mint_token
+from returns_desk.auth import authenticate, mint_token, verify_token
 from returns_desk.container import Container, build_container
 from returns_desk.db import Principal
 from returns_desk.errors import (
@@ -78,8 +78,17 @@ def get_container(request: Request) -> Container:
 Deps = Annotated[Container, Depends(get_container)]
 
 
-def get_principal(deps: Deps, authorization: Annotated[str | None, Header()] = None) -> Principal:
-    return authenticate(deps.settings, deps.db, authorization)
+def get_principal(
+    deps: Deps,
+    authorization: Annotated[str | None, Header()] = None,
+    x_rd_merchant: Annotated[str | None, Header()] = None,
+    x_rd_surface: Annotated[str | None, Header()] = None,
+) -> Principal:
+    # The two headers pick which of the user's own relationships this request is made
+    # under. They grant nothing: the role still comes from the database.
+    return authenticate(
+        deps.settings, deps.db, authorization, merchant=x_rd_merchant, surface=x_rd_surface
+    )
 
 
 Caller = Annotated[Principal, Depends(get_principal)]
@@ -122,7 +131,13 @@ def create_app(container: Container | None = None) -> FastAPI:
             CORSMiddleware,
             allow_origins=origins,
             allow_methods=["GET", "POST"],
-            allow_headers=["authorization", "content-type", "x-request-id"],
+            allow_headers=[
+                "authorization",
+                "content-type",
+                "x-request-id",
+                "x-rd-merchant",
+                "x-rd-surface",
+            ],
             expose_headers=["x-request-id"],
         )
 
@@ -239,7 +254,13 @@ def create_app(container: Container | None = None) -> FastAPI:
     # --- shopper and staff: cases -----------------------------------------------------
 
     @app.get("/healthz")
-    def healthz() -> dict[str, str]:
+    def healthz(deps: Deps, deep: bool = False) -> dict[str, str]:
+        """Is the service up? With ?deep=1 it also runs a query, which is what a keep-alive
+        ping uses so that a free-tier database counts as active."""
+        if deep:
+            with deps.db.service_tx() as conn:
+                conn.execute("select 1")
+            return {"status": "ok", "database": "ok"}
         return {"status": "ok"}
 
     @app.get("/me")
@@ -249,6 +270,15 @@ def create_app(container: Container | None = None) -> FastAPI:
             "merchant": principal.merchant_slug,
             "role": principal.role,
         }
+
+    @app.get("/me/merchants")
+    def my_merchants(
+        deps: Deps, authorization: Annotated[str | None, Header()] = None
+    ) -> dict[str, Any]:
+        """Where the signed-in user can go: each merchant they shop at or work for, and
+        as what. Needs only a valid token, so a sign-in screen can offer the choice."""
+        claims = verify_token(deps.settings, authorization)
+        return {"merchants": deps.db.relationships(UUID(claims["sub"]))}
 
     @app.get("/orders")
     def list_orders(deps: Deps, principal: Caller) -> dict[str, Any]:

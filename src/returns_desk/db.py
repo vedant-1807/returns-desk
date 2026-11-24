@@ -94,3 +94,14 @@ class Database:
             return conn.execute(
                 "select * from auth_context(%s, %s)", (user_id, merchant_id)
             ).fetchone()
+
+    def merchant_id(self, slug: str) -> UUID | None:
+        """A merchant's ID from its slug, or None. Runs before any claims exist."""
+        with self._app.connection() as conn, conn.transaction():
+            row = conn.execute("select auth_merchant_id(%s) as id", (slug,)).fetchone()
+        return row["id"] if row else None
+
+    def relationships(self, user_id: UUID) -> list[dict[str, Any]]:
+        """Every merchant this user can sign in to, and as what."""
+        with self._app.connection() as conn, conn.transaction():
+            return conn.execute("select * from auth_relationships(%s)", (user_id,)).fetchall()

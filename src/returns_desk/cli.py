@@ -46,6 +46,26 @@ def main() -> None:
 
     commands.add_parser("export-traces", help="send unsent trace spans to Langfuse once")
 
+    users_cmd = commands.add_parser(
+        "supabase-users", help="create the seeded demo people in Supabase Auth"
+    )
+    users_cmd.add_argument("--url", required=True, help="https://<project>.supabase.co")
+    users_cmd.add_argument(
+        "--service-role-key-env",
+        default="SUPABASE_SERVICE_ROLE_KEY",
+        help="environment variable that holds the project's service-role key",
+    )
+    users_cmd.add_argument(
+        "--password-env",
+        default="RD_DEMO_PASSWORD",
+        help="environment variable that holds the shared demo password",
+    )
+
+    cron_cmd = commands.add_parser(
+        "cron-sql", help="print the SQL that makes Supabase call reconcile every minute"
+    )
+    cron_cmd.add_argument("--api-url", required=True, help="the deployed API's base URL")
+
     eval_cmd = commands.add_parser("eval", help="run the synthetic eval suite and write a report")
     eval_cmd.add_argument("--suite", choices=("smoke", "nightly"), default="smoke")
     eval_cmd.add_argument("--cases", type=int, help="override the number of cases")
@@ -191,6 +211,26 @@ def main() -> None:
             print(json.dumps(container.tracer.export_new()))
         finally:
             container.close()
+
+    elif args.command == "supabase-users":
+        import os
+
+        from returns_desk.deploy import create_supabase_users
+
+        key = os.environ.get(args.service_role_key_env, "")
+        password = os.environ.get(args.password_env, "")
+        if not key or not password:
+            raise SystemExit(
+                f"Set {args.service_role_key_env} and {args.password_env} in the environment. "
+                "Neither is ever passed on the command line."
+            )
+        for row in create_supabase_users(args.url, key, password):
+            print(f"{row['result']:8} {row['email']}")
+
+    elif args.command == "cron-sql":
+        from returns_desk.deploy import reconcile_cron_sql
+
+        print(reconcile_cron_sql(args.api_url, settings.internal_token))
 
     elif args.command == "eval":
         import logging
