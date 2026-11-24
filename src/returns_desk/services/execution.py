@@ -286,6 +286,17 @@ class ExecutionService:
             log.exception("unexpected processor error for action %s", action["id"])
             attempts.append((operation, "unknown", {"error": repr(exc)}))
             return self._mark_unknown(action["id"], attempt_no, attempts, repr(exc))
+        if receipt.status in ("failed", "canceled"):
+            # The provider has the refund and says it did not go through: verified.
+            return self._settle_failure(
+                action["id"], attempt_no, attempts, f"refund_{receipt.status}"
+            )
+        if receipt.status != "succeeded":
+            # "pending" and the like. The refund exists but is not final. Keep the units
+            # reserved and look again later.
+            return self._mark_unknown(
+                action["id"], attempt_no, attempts, f"provider status: {receipt.status}"
+            )
         return self._settle_success(action["id"], attempt_no, attempts, receipt)
 
     # --- steps ------------------------------------------------------------------------

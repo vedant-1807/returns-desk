@@ -100,7 +100,9 @@ class SandboxProcessor:
 
     # --- sandbox controls used by seeds and tests -------------------------------------
 
-    def create_payment(self, payment_ref: str, account: str, amount_cents: int) -> None:
+    def create_payment(self, payment_ref: str, account: str, amount_cents: int) -> str:
+        """Record an original payment and return the reference refunds are made against.
+        Here that is the reference asked for; a real provider issues its own."""
         with self._pool.connection() as conn:
             conn.execute(
                 """
@@ -109,6 +111,7 @@ class SandboxProcessor:
                 """,
                 (payment_ref, account, amount_cents),
             )
+        return payment_ref
 
     def arm_fault(self, kind: FaultKind, *, payment_ref: str | None = None, times: int = 1) -> None:
         """Make the next `times` create_refund calls fail in the given way. With a

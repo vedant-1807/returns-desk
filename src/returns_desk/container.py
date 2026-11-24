@@ -47,6 +47,19 @@ class Container:
                 close()
 
 
+def build_processor(settings: Settings, clock: Clock) -> PaymentProcessor:
+    """The payment processor named by RD_PAYMENT_PROVIDER."""
+    if settings.payment_provider == "sandbox":
+        return SandboxProcessor(settings.processor_dsn, clock)
+    if settings.payment_provider == "stripe":
+        from returns_desk.processor.stripe import StripeProcessor
+
+        return StripeProcessor(settings.stripe_secret_key, base_url=settings.stripe_base_url)
+    raise RuntimeError(
+        f"unknown RD_PAYMENT_PROVIDER {settings.payment_provider!r}; use sandbox or stripe"
+    )
+
+
 def build_container(
     settings: Settings | None = None,
     *,
@@ -64,7 +77,7 @@ def build_container(
     require_real_secrets(settings)
     clock = clock or SystemClock()
     db = Database(settings)
-    processor = processor or SandboxProcessor(settings.processor_dsn, clock)
+    processor = processor or build_processor(settings, clock)
     embedder = embedder or build_embedder(settings)
     container = Container(
         settings=settings,

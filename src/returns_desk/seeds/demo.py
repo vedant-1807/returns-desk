@@ -15,15 +15,30 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Protocol
 from uuid import UUID
 
 import psycopg
 from psycopg.types.json import Jsonb
 
-from returns_desk.processor.sandbox import SandboxProcessor
 from returns_desk.retrieval.embedders import Embedder, HashEmbedder
 from returns_desk.retrieval.index import index_policy_versions
+
+
+class SeedProcessor(Protocol):
+    """What seeding needs from a payment processor, beyond refunds: a way to create the
+    original payments, and to start clean."""
+
+    def create_payment(self, payment_ref: str, account: str, amount_cents: int) -> str: ...
+
+    def create_refund(
+        self, *, payment_ref: str, amount_cents: int, idempotency_key: str, metadata: dict[str, Any]
+    ) -> Any: ...
+
+    def reset(self) -> None: ...
+
+    def clear_request_log(self) -> None: ...
+
 
 FIXTURES = ("two_jackets", "return_history", "last_unit", "multi_unit")
 
@@ -126,7 +141,7 @@ class Ids:
         return f"pay_{merchant}_{number}"
 
 
-def reset(admin_dsn: str, processor: SandboxProcessor) -> None:
+def reset(admin_dsn: str, processor: SeedProcessor) -> None:
     """Empty every application table and the sandbox processor's records."""
     with psycopg.connect(admin_dsn) as conn:
         # trace_exports points at audit rows by ID. Those IDs start again after a reset,
@@ -146,7 +161,7 @@ def reset(admin_dsn: str, processor: SandboxProcessor) -> None:
 
 def seed(
     admin_dsn: str,
-    processor: SandboxProcessor,
+    processor: SeedProcessor,
     *,
     fixture: str,
     now: datetime,
@@ -405,7 +420,7 @@ def _section(
 
 def _order(
     conn: psycopg.Connection,
-    processor: SandboxProcessor,
+    processor: SeedProcessor,
     *,
     merchant: str,
     shopper: str,
@@ -416,7 +431,10 @@ def _order(
 ) -> None:
     merchant_id = Ids.merchant(merchant)
     order_id = Ids.order(merchant, number)
-    payment_ref = Ids.payment_ref(merchant, number)
+    # The processor holds its own record of the original payment, and says what reference
+    # refunds are to be made against (the sandbox echoes ours; Stripe issues a pi_ ID).
+    total = sum(quantity * unit_paid_cents for *_, quantity, unit_paid_cents in lines)
+    payment_ref = processor.create_payment(Ids.payment_ref(merchant, number), merchant, total)
     conn.execute(
         """
         insert into orders
@@ -434,7 +452,6 @@ def _order(
             payment_ref,
         ),
     )
-    total = 0
     for key, sku, variant, description, quantity, unit_paid_cents in lines:
         conn.execute(
             """
@@ -453,12 +470,9 @@ def _order(
                 unit_paid_cents,
             ),
         )
-        total += quantity * unit_paid_cents
-    # The processor holds its own record of the original payment.
-    processor.create_payment(payment_ref, merchant, total)
 
 
-def _return_history(conn: psycopg.Connection, processor: SandboxProcessor, now: datetime) -> None:
+def _return_history(conn: psycopg.Connection, processor: SeedProcessor, now: datetime) -> None:
     """Three completed $25 returns for Maya at Northline in the last 30 days, each consistent
     on both sides (app ledger and processor), plus a fresh $40 order to ask about."""
     merchant = "northline"
@@ -487,8 +501,11 @@ def _return_history(conn: psycopg.Connection, processor: SandboxProcessor, now: 
         proposal_id = _id(f"proposal/{merchant}/history/{index}")
         action_id = _id(f"action/{merchant}/history/{index}")
         key = f"rd-refund-{action_id}"
+        payment_ref = conn.execute(
+            "select provider_payment_ref from orders where id = %s", (order_id,)
+        ).fetchone()[0]
         receipt = processor.create_refund(
-            payment_ref=Ids.payment_ref(merchant, number),
+            payment_ref=payment_ref,
             amount_cents=2500,
             idempotency_key=key,
             metadata={"action_id": str(action_id), "case_id": str(case_id)},
@@ -558,7 +575,7 @@ def _return_history(conn: psycopg.Connection, processor: SandboxProcessor, now: 
                 proposal_id,
                 order_id,
                 line_id,
-                Ids.payment_ref(merchant, number),
+                payment_ref,
                 key,
                 receipt.id,
                 ops_version,

@@ -73,8 +73,16 @@ class World:
     """One seeded world for one test: the app, a frozen clock, the sandbox processor, and
     helpers to act as a seeded user and to read persisted state on both sides."""
 
-    def __init__(self, settings: Settings, fixture: str, test_name: str) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        fixture: str,
+        test_name: str,
+        processor_factory: Any = None,
+    ) -> None:
         self.settings = settings
+        # Makes the payment processor for each start of the app. None means the sandbox.
+        self._processor_factory = processor_factory
         self.clock = FrozenClock(REFERENCE_NOW)
         self.test_name = test_name
         self._evidence: dict[str, Any] = {"test": test_name, "fixture": fixture, "steps": []}
@@ -86,7 +94,7 @@ class World:
         self.container: Container = self._build()
         seed(
             settings.admin_dsn,
-            self.processor,
+            self.container.processor,  # type: ignore[arg-type]
             fixture=fixture,
             now=self.clock.now(),
             embedder=self.embedder,
@@ -95,7 +103,11 @@ class World:
 
     def _build(self) -> Container:
         return build_container(
-            self.settings, clock=self.clock, models=self.model, embedder=self.embedder
+            self.settings,
+            clock=self.clock,
+            models=self.model,
+            embedder=self.embedder,
+            processor=self._processor_factory() if self._processor_factory else None,
         )
 
     def _open_client(self) -> None:
@@ -330,10 +342,11 @@ class World:
     def save_evidence(self, **extra: Any) -> None:
         """Write this test's request IDs, resulting rows and processor receipts to disk."""
         self._evidence["rows"] = self.app_side_snapshot()
-        self._evidence["processor"] = {
-            "refunds": [r.as_dict() for r in self.processor.list_refunds()],
-            "requests": self.processor.list_requests(),
-        }
+        if isinstance(self.container.processor, SandboxProcessor):
+            self._evidence["processor"] = {
+                "refunds": [r.as_dict() for r in self.processor.list_refunds()],
+                "requests": self.processor.list_requests(),
+            }
         self._evidence.update(extra)
         ARTIFACTS.mkdir(parents=True, exist_ok=True)
         name = re.sub(r"[^A-Za-z0-9_.-]+", "_", self.test_name)

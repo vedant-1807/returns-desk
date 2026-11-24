@@ -40,8 +40,8 @@ class RefundReceipt:
 
 
 class PaymentProcessor(Protocol):
-    """What the execution service needs from a payment provider. The sandbox implements it
-    now; Stripe test mode implements it in the stretch milestone."""
+    """What the execution service needs from a payment provider. The sandbox and Stripe
+    test mode both implement it."""
 
     def create_refund(
         self,

@@ -8,9 +8,9 @@ from uuid import UUID
 from returns_desk.auth import mint_token
 from returns_desk.clock import SystemClock
 from returns_desk.config import get_settings
+from returns_desk.container import build_processor
 from returns_desk.db import Principal
 from returns_desk.migrate import migrate
-from returns_desk.processor.sandbox import SandboxProcessor
 from returns_desk.retrieval.embedders import build_embedder
 from returns_desk.seeds import FIXTURES, Ids, seed
 from returns_desk.seeds.demo import MERCHANTS, STAFF, USERS
@@ -78,7 +78,7 @@ def main() -> None:
     elif args.command == "seed":
         import httpx2
 
-        processor = SandboxProcessor(settings.processor_dsn, SystemClock())
+        processor = build_processor(settings, SystemClock())
         try:
             seed(
                 settings.admin_dsn,
@@ -95,8 +95,11 @@ def main() -> None:
                 "or set RD_EMBEDDER=hash to seed without a model."
             ) from None
         finally:
-            processor.close()
-        print(f"seeded fixture: {args.fixture} (embeddings: {settings.embedder})")
+            processor.close()  # type: ignore[attr-defined]
+        print(
+            f"seeded fixture: {args.fixture} (embeddings: {settings.embedder}, "
+            f"payments: {settings.payment_provider})"
+        )
 
     elif args.command == "token":
         surface = "staff" if args.user in STAFF else "shopper"
