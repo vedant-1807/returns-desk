@@ -735,6 +735,7 @@ def test_staff_can_write_on_a_case_without_driving_the_workflow(world: World):
     assert view["state"] == "awaiting_customer"
     assert view["messages"][-1] == {
         "author_kind": "associate",
+        "audience": "customer",
         "body": "yes",
         "created_at": view["messages"][-1]["created_at"],
     }
