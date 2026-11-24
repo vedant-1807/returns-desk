@@ -25,6 +25,16 @@ class Settings(BaseSettings):
     jwt_secret: str = "local-dev-secret-change-me-0123456789abcdef"
     jwt_audience: str = "authenticated"
     internal_token: str = "local-internal-token-change-me"
+    # Shared secret that signs payment provider events (POST /webhooks/payments). With
+    # Stripe this is the endpoint's signing secret (whsec_...).
+    payment_webhook_secret: str = "local-webhook-secret-change-me"
+
+    # Who moves the money.
+    #   sandbox  the built-in fault-injecting processor, in its own database schema
+    #   stripe   Stripe test mode; needs RD_STRIPE_SECRET_KEY (an sk_test_ key only)
+    payment_provider: str = "sandbox"
+    stripe_secret_key: str = ""
+    stripe_base_url: str = "https://api.stripe.com"
 
     # Execution worker: how long one worker owns an action, and how retries back off.
     lease_seconds: int = 60
@@ -124,7 +134,7 @@ def require_real_secrets(settings: Settings) -> None:
     """Stop a deployed instance from running on the development secrets in this file."""
     if settings.environment == "local":
         return
-    for name in ("jwt_secret", "internal_token"):
+    for name in ("jwt_secret", "internal_token", "payment_webhook_secret"):
         if getattr(settings, name) == Settings.model_fields[name].default:
             raise RuntimeError(
                 f"RD_{name.upper()} must be set when RD_ENVIRONMENT is {settings.environment!r}"

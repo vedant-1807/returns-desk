@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hmac
+import json
 import logging
 import re
 import uuid
@@ -11,6 +12,7 @@ from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import BackgroundTasks, Body, Depends, FastAPI, Header, Request, Response
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -26,6 +28,7 @@ from returns_desk.errors import (
     NotAuthenticated,
     NotFound,
 )
+from returns_desk.processor import webhooks
 from returns_desk.retrieval.index import index_policy_versions
 from returns_desk.services import cases, chat, ops, policies, reviews, views
 from returns_desk.services.common import add_message
@@ -496,6 +499,35 @@ def create_app(container: Container | None = None) -> FastAPI:
         # Runs every minute, so it also sweeps up any spans an earlier export missed.
         after_response(deps, background)
         return {"result": deps.execution.run_due()}
+
+    @app.post("/webhooks/payments")
+    async def payment_webhook(request: Request) -> dict[str, Any]:
+        """Events from the payment provider. Nothing here is trusted until the signature
+        over the raw body checks out. Then the event is stored once, tied to the action
+        and merchant it is about, and applied by the execution service. A repeat, a late
+        or an out-of-order delivery is answered with 200 and changes nothing, so the
+        provider stops retrying."""
+        deps: Container = request.app.state.container
+        raw = await request.body()
+        webhooks.verify(
+            raw,
+            request.headers.get(webhooks.SIGNATURE_HEADER),
+            deps.settings.payment_webhook_secret,
+            deps.clock.now(),
+        )
+        try:
+            payload = json.loads(raw)
+        except ValueError:
+            raise InvalidRequest("The event is not valid JSON") from None
+        if not isinstance(payload, dict) or not payload.get("id"):
+            raise InvalidRequest("The event has no ID")
+        event = webhooks.parse(payload)
+        result = await run_in_threadpool(
+            deps.execution.apply_refund_event, deps.settings.payment_provider, event, payload
+        )
+        if deps.tracer.enabled:
+            await run_in_threadpool(export_traces, deps)
+        return {"received": True, **result}
 
     # --- local development only -------------------------------------------------------
 

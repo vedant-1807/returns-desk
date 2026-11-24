@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import secrets
 from typing import Any, Literal
 
@@ -120,6 +121,52 @@ class SandboxProcessor:
                 """,
                 (kind, payment_ref, times),
             )
+
+    def refund_event(
+        self,
+        refund_id: str,
+        *,
+        status: str | None = None,
+        event_type: str = "refund.updated",
+    ) -> dict[str, Any]:
+        """The event this provider would send about one of its refunds, in Stripe's shape.
+
+        The same refund, type and status always give the same event ID, so sending it twice
+        is a repeated delivery. Pass `status="pending"` for an earlier state of the refund,
+        which is what a late, out-of-order delivery carries.
+        """
+        with self._pool.connection() as conn:
+            row = conn.execute(
+                """
+                select r.*, p.account from sandbox_processor.refunds r
+                join sandbox_processor.payments p on p.payment_ref = r.payment_ref
+                where r.id = %s
+                """,
+                (refund_id,),
+            ).fetchone()
+        if row is None:
+            raise LookupError(f"no sandbox refund {refund_id}")
+        status = status or row["status"]
+        digest = hashlib.sha256(f"{refund_id}:{event_type}:{status}".encode()).hexdigest()
+        return {
+            "id": f"evt_sbx_{digest[:20]}",
+            "object": "event",
+            "type": event_type,
+            # An earlier state of the refund happened earlier.
+            "created": int(row["created_at"].timestamp()) + (0 if status == "pending" else 1),
+            "account": row["account"],
+            "data": {
+                "object": {
+                    "id": row["id"],
+                    "object": "refund",
+                    "amount": row["amount_cents"],
+                    "currency": row["currency"].lower(),
+                    "status": status,
+                    "payment_intent": row["payment_ref"],
+                    "metadata": row["metadata"],
+                }
+            },
+        }
 
     def list_refunds(self, payment_ref: str | None = None) -> list[RefundReceipt]:
         with self._pool.connection() as conn:

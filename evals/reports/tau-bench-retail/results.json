@@ -79,6 +79,24 @@
    "messages": 30,
    "tool_calls": 7,
    "seconds": 131.1
+  },
+  {
+   "task": 7,
+   "trial": 0,
+   "reward": 0.0,
+   "error": null,
+   "messages": 34,
+   "tool_calls": 8,
+   "seconds": 127.2
+  },
+  {
+   "task": 8,
+   "trial": 0,
+   "reward": 0.0,
+   "error": null,
+   "messages": 34,
+   "tool_calls": 8,
+   "seconds": 122.0
   }
  ]
 }

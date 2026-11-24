@@ -130,8 +130,12 @@ def reset(admin_dsn: str, processor: SandboxProcessor) -> None:
     """Empty every application table and the sandbox processor's records."""
     with psycopg.connect(admin_dsn) as conn:
         # trace_exports points at audit rows by ID. Those IDs start again after a reset,
-        # so the record of what was already sent has to go with them.
-        conn.execute("truncate table merchants, app_users, trace_exports restart identity cascade")
+        # so the record of what was already sent has to go with them. Stored provider
+        # events belong to actions that no longer exist.
+        conn.execute(
+            "truncate table merchants, app_users, trace_exports, payment_events "
+            "restart identity cascade"
+        )
         # Workflow checkpoints belong to cases that no longer exist.
         conn.execute(
             "truncate table workflow.checkpoints, workflow.checkpoint_blobs, "
@@ -225,8 +229,10 @@ def seed(
 def _people(conn: psycopg.Connection) -> None:
     for slug, merchant in MERCHANTS.items():
         conn.execute(
-            "insert into merchants (id, slug, name, timezone) values (%s, %s, %s, %s)",
-            (Ids.merchant(slug), slug, merchant["name"], merchant["timezone"]),
+            "insert into merchants (id, slug, name, timezone, payment_account) "
+            "values (%s, %s, %s, %s, %s)",
+            # The sandbox processor files each merchant's payments under its slug.
+            (Ids.merchant(slug), slug, merchant["name"], merchant["timezone"], slug),
         )
     for key, (email, name) in USERS.items():
         conn.execute(

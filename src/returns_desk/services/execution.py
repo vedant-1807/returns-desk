@@ -33,6 +33,7 @@ from returns_desk.processor.base import (
     ProcessorTimeout,
     RefundReceipt,
 )
+from returns_desk.processor.webhooks import RefundEvent
 from returns_desk.services.common import add_message, format_usd, move_case
 
 log = logging.getLogger(__name__)
@@ -353,81 +354,88 @@ class ExecutionService:
                 # The processor's record does not match what was authorized. Do not settle;
                 # keep the reservation and leave it for a person to look at.
                 return self._hold_unknown(conn, action, now, "receipt_mismatch")
-
-            conn.execute(
-                """
-                update resolution_actions
-                set status = 'succeeded', provider_refund_id = %s, last_error = null,
-                    completed_at = %s, updated_at = %s
-                where id = %s
-                """,
-                (receipt.id, now, now, action_id),
-            )
-            # Reserved becomes refunded. The line's check constraints hold throughout.
-            conn.execute(
-                """
-                update order_lines
-                set reserved_quantity = reserved_quantity - %(q)s,
-                    reserved_cents = reserved_cents - %(c)s,
-                    refunded_quantity = refunded_quantity + %(q)s,
-                    refunded_cents = refunded_cents + %(c)s
-                where id = %(line)s
-                """,
-                {
-                    "q": action["quantity"],
-                    "c": action["amount_cents"],
-                    "line": action["order_line_id"],
-                },
-            )
-            conn.execute(
-                """
-                insert into ledger_entries
-                  (merchant_id, action_id, order_id, order_line_id, kind, quantity,
-                   amount_cents, provider_refund_id, recorded_at)
-                values (%s, %s, %s, %s, 'refund', %s, %s, %s, %s)
-                """,
-                (
-                    action["merchant_id"],
-                    action_id,
-                    action["order_id"],
-                    action["order_line_id"],
-                    action["quantity"],
-                    action["amount_cents"],
-                    receipt.id,
-                    now,
-                ),
-            )
-            case = conn.execute(
-                "select * from cases where id = %s for update", (action["case_id"],)
-            ).fetchone()
-            move_case(
-                conn,
-                case,
-                "resolved",
-                kind="refund_confirmed",
-                actor_kind="system",
-                now=now,
-                outcome_type="refund",
-                resolved_at=now,
-                detail={
-                    "action_id": str(action_id),
-                    "provider_refund_id": receipt.id,
-                    "amount_cents": action["amount_cents"],
-                },
-            )
-            add_message(
-                conn,
-                merchant_id=action["merchant_id"],
-                case_id=action["case_id"],
-                author_kind="system",
-                body=(
-                    f"Your refund of {format_usd(action['amount_cents'])} has been issued. "
-                    f"Reference: {receipt.id}."
-                ),
-                now=now,
-            )
-            self._finish_job(conn, action_id, now)
+            self._record_success(conn, action, receipt, now)
         return "succeeded"
+
+    def _record_success(
+        self, conn: Conn, action: dict[str, Any], receipt: RefundReceipt, now: datetime
+    ) -> None:
+        """Write everything a confirmed refund changes, in the caller's transaction. The
+        caller holds the lock on the action and has checked that it is not final yet."""
+        action_id = action["id"]
+        conn.execute(
+            """
+            update resolution_actions
+            set status = 'succeeded', provider_refund_id = %s, last_error = null,
+                completed_at = %s, updated_at = %s
+            where id = %s
+            """,
+            (receipt.id, now, now, action_id),
+        )
+        # Reserved becomes refunded. The line's check constraints hold throughout.
+        conn.execute(
+            """
+            update order_lines
+            set reserved_quantity = reserved_quantity - %(q)s,
+                reserved_cents = reserved_cents - %(c)s,
+                refunded_quantity = refunded_quantity + %(q)s,
+                refunded_cents = refunded_cents + %(c)s
+            where id = %(line)s
+            """,
+            {
+                "q": action["quantity"],
+                "c": action["amount_cents"],
+                "line": action["order_line_id"],
+            },
+        )
+        conn.execute(
+            """
+            insert into ledger_entries
+              (merchant_id, action_id, order_id, order_line_id, kind, quantity,
+               amount_cents, provider_refund_id, recorded_at)
+            values (%s, %s, %s, %s, 'refund', %s, %s, %s, %s)
+            """,
+            (
+                action["merchant_id"],
+                action_id,
+                action["order_id"],
+                action["order_line_id"],
+                action["quantity"],
+                action["amount_cents"],
+                receipt.id,
+                now,
+            ),
+        )
+        case = conn.execute(
+            "select * from cases where id = %s for update", (action["case_id"],)
+        ).fetchone()
+        move_case(
+            conn,
+            case,
+            "resolved",
+            kind="refund_confirmed",
+            actor_kind="system",
+            now=now,
+            outcome_type="refund",
+            resolved_at=now,
+            detail={
+                "action_id": str(action_id),
+                "provider_refund_id": receipt.id,
+                "amount_cents": action["amount_cents"],
+            },
+        )
+        add_message(
+            conn,
+            merchant_id=action["merchant_id"],
+            case_id=action["case_id"],
+            author_kind="system",
+            body=(
+                f"Your refund of {format_usd(action['amount_cents'])} has been issued. "
+                f"Reference: {receipt.id}."
+            ),
+            now=now,
+        )
+        self._finish_job(conn, action_id, now)
 
     def _settle_failure(
         self,
@@ -446,47 +454,186 @@ class ExecutionService:
             if action["status"] in TERMINAL:
                 self._finish_job(conn, action_id, now)
                 return str(action["status"])
-            conn.execute(
-                """
-                update resolution_actions
-                set status = 'failed', last_error = %s, completed_at = %s, updated_at = %s
-                where id = %s
-                """,
-                (code, now, now, action_id),
-            )
-            conn.execute(
-                """
-                update order_lines
-                set reserved_quantity = reserved_quantity - %s,
-                    reserved_cents = reserved_cents - %s
-                where id = %s
-                """,
-                (action["quantity"], action["amount_cents"], action["order_line_id"]),
-            )
-            case = conn.execute(
-                "select * from cases where id = %s for update", (action["case_id"],)
-            ).fetchone()
-            move_case(
-                conn,
-                case,
-                "declined",
-                kind="refund_failed",
-                actor_kind="system",
-                now=now,
-                outcome_type="payment_failed",
-                outcome_reason=code,
-                detail={"action_id": str(action_id), "code": code},
-            )
-            add_message(
-                conn,
-                merchant_id=action["merchant_id"],
-                case_id=action["case_id"],
-                author_kind="system",
-                body="We could not complete this refund. Nothing was charged or refunded.",
-                now=now,
-            )
-            self._finish_job(conn, action_id, now)
+            self._record_failure(conn, action, code, now)
         return "failed"
+
+    def _record_failure(self, conn: Conn, action: dict[str, Any], code: str, now: datetime) -> None:
+        """Write everything a verified refusal changes, in the caller's transaction."""
+        action_id = action["id"]
+        conn.execute(
+            """
+            update resolution_actions
+            set status = 'failed', last_error = %s, completed_at = %s, updated_at = %s
+            where id = %s
+            """,
+            (code, now, now, action_id),
+        )
+        conn.execute(
+            """
+            update order_lines
+            set reserved_quantity = reserved_quantity - %s,
+                reserved_cents = reserved_cents - %s
+            where id = %s
+            """,
+            (action["quantity"], action["amount_cents"], action["order_line_id"]),
+        )
+        case = conn.execute(
+            "select * from cases where id = %s for update", (action["case_id"],)
+        ).fetchone()
+        move_case(
+            conn,
+            case,
+            "declined",
+            kind="refund_failed",
+            actor_kind="system",
+            now=now,
+            outcome_type="payment_failed",
+            outcome_reason=code,
+            detail={"action_id": str(action_id), "code": code},
+        )
+        add_message(
+            conn,
+            merchant_id=action["merchant_id"],
+            case_id=action["case_id"],
+            author_kind="system",
+            body="We could not complete this refund. Nothing was charged or refunded.",
+            now=now,
+        )
+        self._finish_job(conn, action_id, now)
+
+    # --- provider events ----------------------------------------------------------------
+
+    def apply_refund_event(
+        self, provider: str, event: RefundEvent, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Store one authentic provider event and apply it at most once.
+
+        The event row and whatever it settles commit together, so a crash in between
+        leaves neither and the provider's retry starts clean. A second delivery of the
+        same event finds its row and changes nothing. An event can settle an action that
+        is still open. It can never overwrite a result that is already final.
+        """
+        now = self._clock.now()
+        with self._db.service_tx() as conn:
+            stored = conn.execute(
+                """
+                insert into payment_events
+                  (provider, event_id, event_type, provider_refund_id, refund_status,
+                   occurred_at, payload, outcome, received_at)
+                values (%s, %s, %s, %s, %s, %s, %s, 'received', %s)
+                on conflict (provider, event_id) do nothing
+                returning id
+                """,
+                (
+                    provider,
+                    event.event_id,
+                    event.event_type,
+                    event.refund_id,
+                    event.refund_status,
+                    event.occurred_at,
+                    Jsonb(payload),
+                    now,
+                ),
+            ).fetchone()
+            if stored is None:
+                first = conn.execute(
+                    "select outcome from payment_events where provider = %s and event_id = %s",
+                    (provider, event.event_id),
+                ).fetchone()
+                return {"duplicate": True, "outcome": first["outcome"]}
+
+            outcome, action = self._apply_event(conn, event, now)
+            conn.execute(
+                """
+                update payment_events set outcome = %s, merchant_id = %s, action_id = %s
+                where id = %s
+                """,
+                (
+                    outcome,
+                    action["merchant_id"] if action else None,
+                    action["id"] if action else None,
+                    stored["id"],
+                ),
+            )
+        return {"duplicate": False, "outcome": outcome}
+
+    def _apply_event(
+        self, conn: Conn, event: RefundEvent, now: datetime
+    ) -> tuple[str, dict[str, Any] | None]:
+        if not event.is_refund:
+            return "ignored_type", None
+        try:
+            action_id = UUID(str(event.action_id))
+        except ValueError:
+            return "unknown_action", None
+        action = conn.execute(
+            "select * from resolution_actions where id = %s and kind = 'refund' for update",
+            (action_id,),
+        ).fetchone()
+        if action is None:
+            return "unknown_action", None
+
+        # Map the provider account to the merchant: an event is only applied to an action
+        # of the merchant whose payment account it names.
+        merchant = conn.execute(
+            "select payment_account from merchants where id = %s", (action["merchant_id"],)
+        ).fetchone()
+        if event.account and merchant["payment_account"] not in (None, event.account):
+            return "account_mismatch", None
+
+        detail = {"event_id": event.event_id, "refund_id": event.refund_id}
+        if event.refund_status == "succeeded":
+            if action["status"] in TERMINAL:
+                same = (
+                    action["status"] == "succeeded"
+                    and action["provider_refund_id"] == event.refund_id
+                )
+                return ("already_final" if same else "conflicts_with_final"), action
+            if (
+                not event.refund_id
+                or event.amount_cents != action["amount_cents"]
+                or event.payment_ref != action["provider_payment_ref"]
+            ):
+                # Not the refund that was authorized. Change nothing; a person looks.
+                return "receipt_mismatch", action
+            self._write_attempts(
+                conn,
+                action,
+                action["attempt_count"],
+                [("provider_event", "succeeded", detail)],
+                now,
+            )
+            receipt = RefundReceipt(
+                id=event.refund_id,
+                payment_ref=event.payment_ref,
+                amount_cents=event.amount_cents,
+                currency="USD",
+                status="succeeded",
+                idempotency_key=action["idempotency_key"],
+                metadata={},
+                created_at=event.occurred_at or now,
+            )
+            self._record_success(conn, action, receipt, now)
+            return "settled", action
+
+        if event.refund_status in ("failed", "canceled"):
+            if action["status"] in TERMINAL:
+                same = action["status"] == "failed"
+                return ("already_final" if same else "conflicts_with_final"), action
+            code = event.failure_reason or f"refund_{event.refund_status}"
+            self._write_attempts(
+                conn,
+                action,
+                action["attempt_count"],
+                [("provider_event", "rejected", {**detail, "code": code})],
+                now,
+            )
+            self._record_failure(conn, action, code, now)
+            return "settled_failure", action
+
+        # "pending" and the like: an earlier state of the refund. Nothing to do, whether
+        # it arrives early or, out of order, after the final result.
+        return "not_final_yet", action
 
     def _mark_unknown(
         self,
