@@ -202,6 +202,8 @@ Each acceptance test writes its request IDs, resulting rows and processor receip
 
 ## Status
 
+_Last updated: 2026-11-24._
+
 **Built and tested** (287 tests against real Postgres, 4 browser tests in Chrome):
 
 - All sixteen acceptance tests of the spec, A01 to A16.
